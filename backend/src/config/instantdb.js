@@ -140,8 +140,14 @@ if (STORAGE_MODE === 'instantdb') {
     console.warn('⚠️  INSTANTDB_APP_ID not set. Falling back to local storage.');
   } else if (!ADMIN_TOKEN) {
     console.warn('⚠️  INSTANTDB_ADMIN_TOKEN not set. Falling back to local storage.');
+  } else if (!schema) {
+    console.error('❌ Schema is null! Cannot initialize InstantDB without schema.');
+    console.warn('⚠️  Falling back to local storage.');
   } else {
     try {
+      console.log('🔍 Initializing InstantDB with schema...');
+      console.log('🔍 Schema type:', typeof schema);
+      console.log('🔍 Schema keys:', schema ? Object.keys(schema) : 'null');
       db = init({
         appId: APP_ID,
         adminToken: ADMIN_TOKEN,
