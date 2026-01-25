@@ -26,28 +26,37 @@ try {
   schema = require(schemaPath).default || require(schemaPath);
   console.log('✅ Loaded schema from instant.schema.js');
 } catch (e) {
-  // Fallback: Try dynamic ESM import for @instantdb/core (works better than require)
+  // Second try: Import directly from TypeScript file (Node.js 20+ supports .ts imports with loader)
   try {
-    console.log('🔍 Trying dynamic ESM import for @instantdb/core...');
-    const instantCoreModule = await import('@instantdb/core');
-    console.log('🔍 instantCoreModule keys:', Object.keys(instantCoreModule));
-    console.log('🔍 instantCoreModule.default type:', typeof instantCoreModule.default);
-    if (instantCoreModule.default && typeof instantCoreModule.default === 'object') {
-      console.log('🔍 instantCoreModule.default keys:', Object.keys(instantCoreModule.default));
-    }
-    
-    // Try different ways to get i
-    let i = instantCoreModule.i;
-    if (!i && instantCoreModule.default) {
-      if (typeof instantCoreModule.default === 'object' && instantCoreModule.default.i) {
-        i = instantCoreModule.default.i;
-        console.log('✅ Found i in instantCoreModule.default.i');
-      } else if (typeof instantCoreModule.default === 'function' && instantCoreModule.default.schema) {
-        // default might be the i function itself
-        i = instantCoreModule.default;
-        console.log('✅ Found i as instantCoreModule.default (function)');
+    console.log('🔍 Trying to import from instant.schema.ts...');
+    // Use file:// protocol for absolute path
+    const schemaPath = `file://${join(__dirname, '../../../instant.schema.ts')}`;
+    const schemaModule = await import(schemaPath);
+    schema = schemaModule.default || schemaModule;
+    console.log('✅ Loaded schema from instant.schema.ts');
+  } catch (e1) {
+    console.log('⚠️  Could not import from instant.schema.ts:', e1.message);
+  // Fallback: Try to get i from @instantdb/admin (recommended approach)
+    try {
+      console.log('🔍 Trying to import i from @instantdb/admin...');
+      const adminModule = await import('@instantdb/admin');
+      console.log('🔍 adminModule keys:', Object.keys(adminModule));
+      let i = adminModule.i;
+      
+      if (!i && adminModule.default && typeof adminModule.default === 'object') {
+        i = adminModule.default.i;
+        console.log('🔍 Checking adminModule.default for i...');
       }
-    }
+      
+      if (!i) {
+        // Try @instantdb/core as last resort
+        console.log('🔍 i not found in @instantdb/admin, trying @instantdb/core...');
+        const instantCoreModule = await import('@instantdb/core');
+        i = instantCoreModule.i;
+        if (!i && instantCoreModule.default && typeof instantCoreModule.default === 'object') {
+          i = instantCoreModule.default.i;
+        }
+      }
     
     if (!i || !i.schema) {
       console.error('❌ Could not find i.schema in @instantdb/core');
@@ -146,10 +155,11 @@ try {
   rooms: {}
 });
     console.log('✅ Built schema using @instantdb/core');
-  } catch (e2) {
-    console.error('❌ Failed to load or build schema:', e2.message);
-    console.error('Stack:', e2.stack);
-    schema = null;
+    } catch (e2) {
+      console.error('❌ Failed to load or build schema:', e2.message);
+      console.error('Stack:', e2.stack);
+      schema = null;
+    }
   }
 }
 
