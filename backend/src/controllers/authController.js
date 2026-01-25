@@ -37,12 +37,13 @@ export async function register(req, res, next) {
       passwordHash,
       createdAt: now,
       updatedAt: now,
-      stats: {
+      // WICHTIG: stats als JSON-String speichern (InstantDB erwartet String-Typ)
+      stats: JSON.stringify({
         totalWordsLearned: 0,
         totalJokerPoints: 0,
         gamesPlayed: 0,
         gamesWon: 0
-      }
+      })
     };
 
     const userId = await dbHelpers.createUser(userData);
@@ -102,7 +103,7 @@ export async function login(req, res, next) {
         id: user.id,
         email: user.email,
         username: user.username,
-        stats: user.stats
+        stats: typeof user.stats === 'string' ? JSON.parse(user.stats) : user.stats
       }
     });
   } catch (error) {
@@ -132,12 +133,13 @@ export async function guestLogin(req, res, next) {
       isGuest: true,
       createdAt: now,
       updatedAt: now,
-      stats: {
+      // WICHTIG: stats als JSON-String speichern (InstantDB erwartet String-Typ)
+      stats: JSON.stringify({
         totalWordsLearned: 0,
         totalJokerPoints: 0,
         gamesPlayed: 0,
         gamesWon: 0
-      }
+      })
     };
 
     const userId = await dbHelpers.createUser(userData);
@@ -176,7 +178,7 @@ export async function getMe(req, res, next) {
         id: user.id,
         email: user.email,
         username: user.username,
-        stats: user.stats,
+        stats: typeof user.stats === 'string' ? JSON.parse(user.stats) : user.stats,
         createdAt: user.createdAt,
         isGuest: user.isGuest || false
       }
