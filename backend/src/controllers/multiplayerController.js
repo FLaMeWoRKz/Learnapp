@@ -25,20 +25,22 @@ export function setupGameRoomHandlers(socket, io) {
       socketId: socket.id
     };
 
-    if (!room.players) {
-      room.players = [];
-    }
+    // Parse players if stored as string
+    let players = typeof room.players === 'string' 
+      ? JSON.parse(room.players) 
+      : (room.players || []);
     
     // Check if player already exists
-    const existingPlayerIndex = room.players.findIndex(p => p.userId === userId);
+    const existingPlayerIndex = players.findIndex(p => p.userId === userId);
     if (existingPlayerIndex >= 0) {
       // Update existing player
-      room.players[existingPlayerIndex] = { ...room.players[existingPlayerIndex], socketId: socket.id };
+      players[existingPlayerIndex] = { ...players[existingPlayerIndex], socketId: socket.id };
     } else {
       // Add new player
-      room.players.push(player);
+      players.push(player);
     }
     
+    room.players = JSON.stringify(players);
     await dbHelpers.updateGameRoom(room.id, room);
     activeRooms.set(roomCode, room);
 
@@ -47,8 +49,8 @@ export function setupGameRoomHandlers(socket, io) {
       room: {
         code: room.code,
         hostId: room.hostId,
-        players: room.players,
-        settings: room.settings,
+        players, // Send parsed array
+        settings: typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings,
         status: room.status
       }
     });
@@ -60,7 +62,11 @@ export function setupGameRoomHandlers(socket, io) {
     
     const room = activeRooms.get(roomCode) || await dbHelpers.getGameRoomByCode(roomCode);
     if (room) {
-      room.players = room.players.filter(p => p.userId !== userId);
+      let players = typeof room.players === 'string' 
+        ? JSON.parse(room.players) 
+        : (room.players || []);
+      players = players.filter(p => p.userId !== userId);
+      room.players = JSON.stringify(players);
       await dbHelpers.updateGameRoom(room.id, room);
       activeRooms.set(roomCode, room);
 
@@ -68,8 +74,8 @@ export function setupGameRoomHandlers(socket, io) {
         room: {
           code: room.code,
           hostId: room.hostId,
-          players: room.players,
-          settings: room.settings,
+          players, // Send parsed array
+          settings: typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings,
           status: room.status
         }
       });
@@ -85,9 +91,14 @@ export function setupGameRoomHandlers(socket, io) {
       return;
     }
 
+    // Parse settings if stored as string
+    const settings = typeof room.settings === 'string' 
+      ? JSON.parse(room.settings) 
+      : room.settings;
+
     // Get vocabularies based on selected packs
     const vocabularies = [];
-    for (const level of room.settings.selectedPacks) {
+    for (const level of settings.selectedPacks) {
       const vocabs = await dbHelpers.getVocabularies({ level });
       vocabularies.push(...vocabs);
     }
@@ -98,7 +109,7 @@ export function setupGameRoomHandlers(socket, io) {
     }
 
     // Select random vocabularies for rounds
-    const selectedVocabs = getRandomVocabularies(vocabularies, room.settings.rounds);
+    const selectedVocabs = getRandomVocabularies(vocabularies, settings.rounds);
     room.selectedVocabularies = selectedVocabs;
     room.currentRound = 0;
     room.status = 'playing';
@@ -118,7 +129,12 @@ export function setupGameRoomHandlers(socket, io) {
       return;
     }
 
-    const player = room.players.find(p => p.userId === userId);
+    // Parse players if stored as string
+    const players = typeof room.players === 'string' 
+      ? JSON.parse(room.players) 
+      : (room.players || []);
+
+    const player = players.find(p => p.userId === userId);
     if (!player || player.isSpectator) {
       socket.emit('error', { message: 'Not a player' });
       return;
@@ -147,11 +163,12 @@ export function setupGameRoomHandlers(socket, io) {
     player.answer = answer;
     player.isCorrect = isCorrect;
 
+    room.players = JSON.stringify(players);
     await dbHelpers.updateGameRoom(room.id, room);
     activeRooms.set(roomCode, room);
 
     // Check if all players answered (but wait at least 2 seconds after question start)
-    const activePlayers = room.players.filter(p => !p.isSpectator);
+    const activePlayers = players.filter(p => !p.isSpectator);
     const allAnswered = activePlayers.every(p => p.answered);
     const timeSinceQuestionStart = Math.floor((Date.now() - (room.currentQuestion?.startTime || Date.now())) / 1000);
     const minWaitTime = 2; // Minimum 2 seconds before proceeding
@@ -160,7 +177,7 @@ export function setupGameRoomHandlers(socket, io) {
       // Emit round result
       io.to(roomCode).emit('round-result', {
         correctAnswer: vocabulary.english,
-        players: room.players.map(p => ({
+        players: players.map(p => ({
           userId: p.userId,
           username: p.username,
           score: p.score,
@@ -170,7 +187,8 @@ export function setupGameRoomHandlers(socket, io) {
 
       // Wait 3 seconds, then next round or finish
       setTimeout(async () => {
-        if (room.currentRound < room.settings.rounds - 1) {
+        const settings = typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings;
+        if (room.currentRound < settings.rounds - 1) {
           room.currentRound++;
           await startNextRound(io, roomCode, room);
         } else {
@@ -184,7 +202,10 @@ export function setupGameRoomHandlers(socket, io) {
     const { roomCode, userId } = data;
     
     const room = activeRooms.get(roomCode);
-    const player = room?.players.find(p => p.userId === userId);
+    const players = typeof room?.players === 'string' 
+      ? JSON.parse(room.players) 
+      : (room?.players || []);
+    const player = players.find(p => p.userId === userId);
     
     if (!player || player.isSpectator) {
       socket.emit('error', { message: 'Not a player' });
@@ -193,6 +214,10 @@ export function setupGameRoomHandlers(socket, io) {
 
     // Check joker points (get from flashcard progress)
     const flashcardProgress = await dbHelpers.getFlashcardProgress(userId);
+    const boxes = typeof flashcardProgress?.boxes === 'string' 
+      ? JSON.parse(flashcardProgress.boxes) 
+      : flashcardProgress?.boxes;
+      
     if (!flashcardProgress || flashcardProgress.jokerPoints < 5) {
       socket.emit('error', { message: 'Not enough joker points' });
       return;
@@ -200,6 +225,7 @@ export function setupGameRoomHandlers(socket, io) {
 
     // Deduct joker points
     flashcardProgress.jokerPoints -= 5;
+    flashcardProgress.boxes = JSON.stringify(boxes);
     await dbHelpers.updateFlashcardProgress(flashcardProgress);
 
     // Get current question and remove 2 wrong answers
@@ -229,7 +255,8 @@ export function setupGameRoomHandlers(socket, io) {
       return;
     }
 
-    if (room.currentRound < room.settings.rounds - 1) {
+    const settings = typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings;
+    if (room.currentRound < settings.rounds - 1) {
       room.currentRound++;
       await startNextRound(io, roomCode, room);
     } else {
@@ -265,24 +292,29 @@ async function startNextRound(io, roomCode, room) {
   };
 
   // Reset player answers
-  room.players.forEach(p => {
+  const players = typeof room.players === 'string' 
+    ? JSON.parse(room.players) 
+    : (room.players || []);
+  players.forEach(p => {
     p.answered = false;
     p.answer = null;
     p.isCorrect = false;
   });
+  room.players = JSON.stringify(players);
 
   await dbHelpers.updateGameRoom(room.id, room);
   activeRooms.set(roomCode, room);
 
+  const settings = typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings;
   io.to(roomCode).emit('question', {
     round: room.currentRound + 1,
-    totalRounds: room.settings.rounds,
+    totalRounds: settings.rounds,
     question: room.currentQuestion,
-    timer: room.settings.timerEnabled ? room.settings.timerDuration : null
+    timer: settings.timerEnabled ? settings.timerDuration : null
   });
 
   // Auto-answer for bots
-  const bots = room.players.filter(p => p.isBot);
+  const bots = players.filter(p => p.isBot);
   bots.forEach(bot => {
     // Random delay between 3-8 seconds (give human players more time)
     const delay = Math.random() * 5000 + 3000;
@@ -316,11 +348,12 @@ async function startNextRound(io, roomCode, room) {
       bot.answer = answer;
       bot.isCorrect = isAnswerCorrect;
       
+      room.players = JSON.stringify(players);
       await dbHelpers.updateGameRoom(room.id, room);
       activeRooms.set(roomCode, room);
       
       // Check if all players answered (but wait at least 2 seconds after question start)
-      const activePlayers = room.players.filter(p => !p.isSpectator);
+      const activePlayers = players.filter(p => !p.isSpectator);
       const allAnswered = activePlayers.every(p => p.answered);
       const timeSinceQuestionStart = Math.floor((Date.now() - (room.currentQuestion?.startTime || Date.now())) / 1000);
       const minWaitTime = 2; // Minimum 2 seconds before proceeding
@@ -329,7 +362,7 @@ async function startNextRound(io, roomCode, room) {
         // Emit round result
         io.to(roomCode).emit('round-result', {
           correctAnswer: vocabulary.english,
-          players: room.players.map(p => ({
+          players: players.map(p => ({
             userId: p.userId,
             username: p.username,
             score: p.score,
@@ -340,11 +373,14 @@ async function startNextRound(io, roomCode, room) {
         // Wait 3 seconds, then next round or finish
         setTimeout(async () => {
           const updatedRoom = activeRooms.get(roomCode) || await dbHelpers.getGameRoomByCode(roomCode);
-          if (updatedRoom && updatedRoom.currentRound < updatedRoom.settings.rounds - 1) {
-            updatedRoom.currentRound++;
-            await startNextRound(io, roomCode, updatedRoom);
-          } else if (updatedRoom) {
-            await finishGame(io, roomCode, updatedRoom);
+          if (updatedRoom) {
+            const updatedSettings = typeof updatedRoom.settings === 'string' ? JSON.parse(updatedRoom.settings) : updatedRoom.settings;
+            if (updatedRoom.currentRound < updatedSettings.rounds - 1) {
+              updatedRoom.currentRound++;
+              await startNextRound(io, roomCode, updatedRoom);
+            } else {
+              await finishGame(io, roomCode, updatedRoom);
+            }
           }
         }, 3000);
       }
@@ -357,8 +393,13 @@ async function finishGame(io, roomCode, room) {
   await dbHelpers.updateGameRoom(room.id, room);
   activeRooms.delete(roomCode);
 
+  // Parse players for leaderboard
+  const players = typeof room.players === 'string' 
+    ? JSON.parse(room.players) 
+    : (room.players || []);
+
   // Sort players by score
-  const leaderboard = room.players
+  const leaderboard = players
     .filter(p => !p.isSpectator)
     .sort((a, b) => b.score - a.score)
     .map((p, index) => ({
@@ -409,14 +450,14 @@ export async function createRoom(req, res, next) {
     const roomData = {
       code,
       hostId: userId,
-      players,
-      settings: {
+      players: JSON.stringify(players),
+      settings: JSON.stringify({
         rounds: settings.rounds,
         selectedPacks: settings.selectedPacks,
         timerEnabled: settings.timerEnabled || false,
         timerDuration: settings.timerDuration || 20,
         botCount: botCount
-      },
+      }),
       currentRound: 0,
       currentQuestion: null,
       status: 'waiting',
@@ -430,7 +471,17 @@ export async function createRoom(req, res, next) {
     res.json({
       roomId,
       code,
-      room: roomData
+      room: {
+        ...roomData,
+        players, // Send unparsed for response
+        settings: {
+          rounds: settings.rounds,
+          selectedPacks: settings.selectedPacks,
+          timerEnabled: settings.timerEnabled || false,
+          timerDuration: settings.timerDuration || 20,
+          botCount: botCount
+        }
+      }
     });
   } catch (error) {
     next(error);
@@ -452,12 +503,27 @@ export async function joinRoom(req, res, next) {
     }
 
     // Check if already in room
-    const alreadyInRoom = room.players.some(p => p.userId === userId);
+    const players = typeof room.players === 'string' 
+      ? JSON.parse(room.players) 
+      : (room.players || []);
+    const alreadyInRoom = players.some(p => p.userId === userId);
     if (alreadyInRoom) {
-      return res.json({ room });
+      return res.json({ 
+        room: {
+          ...room,
+          players,
+          settings: typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings
+        }
+      });
     }
 
-    res.json({ room });
+    res.json({ 
+      room: {
+        ...room,
+        players,
+        settings: typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings
+      }
+    });
   } catch (error) {
     next(error);
   }
@@ -473,7 +539,13 @@ export async function getRoomInfo(req, res, next) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
-    res.json({ room });
+    res.json({ 
+      room: {
+        ...room,
+        players: typeof room.players === 'string' ? JSON.parse(room.players) : room.players,
+        settings: typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings
+      }
+    });
   } catch (error) {
     next(error);
   }
