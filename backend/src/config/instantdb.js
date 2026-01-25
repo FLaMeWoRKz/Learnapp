@@ -1,4 +1,4 @@
-import { init } from '@instantdb/admin';
+import { init, id } from '@instantdb/admin';
 import { localDbHelpers } from './localStorage.js';
 
 // Storage mode: 'local' for testing, 'instantdb' for production
@@ -14,17 +14,27 @@ let db = null;
 if (STORAGE_MODE === 'instantdb') {
   if (!APP_ID) {
     console.warn('⚠️  INSTANTDB_APP_ID not set. Falling back to local storage.');
+  } else if (!ADMIN_TOKEN) {
+    console.warn('⚠️  INSTANTDB_ADMIN_TOKEN not set. Falling back to local storage.');
   } else {
-    db = init({
-      appId: APP_ID,
-      adminToken: ADMIN_TOKEN
-    });
-    console.log('✅ Using InstantDB for storage');
+    try {
+      db = init({
+        appId: APP_ID,
+        adminToken: ADMIN_TOKEN
+      });
+      console.log('✅ Using InstantDB for storage');
+      console.log(`📡 App ID: ${APP_ID.substring(0, 8)}...`);
+    } catch (error) {
+      console.error('❌ Failed to initialize InstantDB:', error.message);
+      console.warn('⚠️  Falling back to local storage.');
+      db = null;
+    }
   }
 }
 
 if (STORAGE_MODE === 'local' || !db) {
   console.log('📁 Using local file storage for testing (backend/data/)');
+  console.log(`🔍 STORAGE_MODE: ${STORAGE_MODE}, db: ${db ? 'initialized' : 'null'}`);
 }
 
 // Schema definition (for reference - InstantDB uses schema from dashboard)
@@ -105,7 +115,14 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.createUser(userData);
     }
-    return await db.transact(db.tx.users[db.id()].update(userData));
+    if (!db || !db.tx || !db.tx.users) {
+      console.error('❌ InstantDB not properly initialized. db.tx.users is undefined');
+      throw new Error('Database not initialized. Please check INSTANTDB_APP_ID and INSTANTDB_ADMIN_TOKEN.');
+    }
+    // InstantDB Admin API: transact expects an array
+    const newId = id();
+    await db.transact([db.tx.users[newId].update(userData)]);
+    return newId;
   },
 
   async getUserByEmail(email) {
@@ -138,7 +155,8 @@ export const dbHelpers = {
     }
     const user = await this.getUserById(userId);
     if (!user) return null;
-    return await db.transact(db.tx.users[user.id].update({ ...userData, updatedAt: Date.now() }));
+    await db.transact([db.tx.users[user.id].update({ ...userData, updatedAt: Date.now() })]);
+    return user;
   },
 
   // Vocabulary operations
@@ -146,7 +164,9 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.createVocabulary(vocabData);
     }
-    return await db.transact(db.tx.vocabularies[db.id()].update(vocabData));
+    const newId = id();
+    await db.transact([db.tx.vocabularies[newId].update(vocabData)]);
+    return newId;
   },
 
   async getVocabularies(filters = {}) {
@@ -180,7 +200,8 @@ export const dbHelpers = {
     }
     const existing = await this.getVocabularyById(vocabId);
     if (!existing) return null;
-    return await db.transact(db.tx.vocabularies[existing.id].update(vocabData));
+    await db.transact([db.tx.vocabularies[existing.id].update(vocabData)]);
+    return existing;
   },
 
   // User Progress operations
@@ -219,9 +240,12 @@ export const dbHelpers = {
     // Check if progress exists
     const existing = await this.getUserProgress(progressData.userId, progressData.vocabId);
     if (existing) {
-      return await db.transact(db.tx.userProgress[existing.id].update(progressData));
+      await db.transact([db.tx.userProgress[existing.id].update(progressData)]);
+      return true;
     } else {
-      return await db.transact(db.tx.userProgress[db.id()].update(progressData));
+      const newId = id();
+      await db.transact([db.tx.userProgress[newId].update(progressData)]);
+      return true;
     }
   },
 
@@ -247,9 +271,12 @@ export const dbHelpers = {
     // Check if progress exists
     const existing = await this.getFlashcardProgress(progressData.userId);
     if (existing) {
-      return await db.transact(db.tx.flashcardProgress[existing.id].update(progressData));
+      await db.transact([db.tx.flashcardProgress[existing.id].update(progressData)]);
+      return true;
     } else {
-      return await db.transact(db.tx.flashcardProgress[db.id()].update(progressData));
+      const newId = id();
+      await db.transact([db.tx.flashcardProgress[newId].update(progressData)]);
+      return true;
     }
   },
 
@@ -258,7 +285,7 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.createGameRoom(roomData);
     }
-    return await db.transact(db.tx.gameRooms[db.id()].update(roomData));
+    return await db.transact([db.tx.gameRooms[id()].update(roomData)]);
   },
 
   async getGameRoomByCode(code) {
@@ -279,10 +306,10 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.updateGameRoom(roomId, roomData);
     }
-    return await db.transact(db.tx.gameRooms[roomId].update({
+    return await db.transact([db.tx.gameRooms[roomId].update({
       ...roomData,
       updatedAt: Date.now()
-    }));
+    })]);
   },
 
   // Game Session operations
@@ -290,7 +317,7 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.createGameSession(sessionData);
     }
-    return await db.transact(db.tx.gameSessions[db.id()].update(sessionData));
+    return await db.transact([db.tx.gameSessions[id()].update(sessionData)]);
   },
 
   async getGameSession(sessionId) {
@@ -311,7 +338,7 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.updateGameSession(sessionId, sessionData);
     }
-    return await db.transact(db.tx.gameSessions[sessionId].update(sessionData));
+    return await db.transact([db.tx.gameSessions[sessionId].update(sessionData)]);
   },
 
   async getUserGameSession(userId, mode, level) {
