@@ -19,7 +19,7 @@ export default function Lobby({ room, roomCode, onStart }: LobbyProps) {
     if (socket && user) {
       socketEvents.joinRoom(socket, roomCode, user.id, user.username, false);
 
-      socketEvents.onRoomUpdated(socket, (data) => {
+      socketEvents.onRoomUpdated(socket, () => {
         // Room updated
       });
 

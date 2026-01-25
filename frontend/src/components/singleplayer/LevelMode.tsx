@@ -8,7 +8,7 @@ import type { Vocabulary } from '../../types';
 export default function LevelMode() {
   const [levels, setLevels] = useState<number[]>([]);
   const [completedPacks, setCompletedPacks] = useState<number[]>([]);
-  const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
+  const [, setSelectedLevel] = useState<number | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState<Vocabulary | null>(null);
   const [options, setOptions] = useState<string[]>([]);

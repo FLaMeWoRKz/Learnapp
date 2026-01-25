@@ -27,7 +27,7 @@ export default function Multiplayer() {
         setView('game');
       });
 
-      socketEvents.onQuestion(socket, (data) => {
+      socketEvents.onQuestion(socket, () => {
         setView('game');
       });
 

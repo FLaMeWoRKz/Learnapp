@@ -1,10 +1,10 @@
-# VocabMaster – Backend + Frontend lokal starten (Local Storage)
-# Führe im Projektroot aus: .\start-local.ps1
+# VocabMaster - Backend + Frontend lokal starten (Local Storage)
+# Fuehre im Projektroot aus: .\start-local.ps1
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 
-Write-Host "VocabMaster – Lokaler Testmodus (Storage: local)" -ForegroundColor Cyan
+Write-Host "VocabMaster - Lokaler Testmodus (Storage: local)" -ForegroundColor Cyan
 Write-Host ""
 
 $backendDir = Join-Path $root "backend"
@@ -33,4 +33,4 @@ Write-Host "Backend:  http://localhost:3000" -ForegroundColor Cyan
 Write-Host "Frontend: http://localhost:5173" -ForegroundColor Cyan
 Write-Host "Daten:    backend/data/*.json (Local Storage)" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Zum Beenden: Beide PowerShell-Fenster schließen." -ForegroundColor Gray
+Write-Host "Zum Beenden: Beide PowerShell-Fenster schliessen." -ForegroundColor Gray
