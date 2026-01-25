@@ -23,17 +23,29 @@ let schema;
 try {
   // Try to import directly from TypeScript file (works when running with tsx)
   console.log('🔍 Trying to import schema from instant.schema.ts...');
+  console.log('🔍 Import path:', join(__dirname, '../../../instant.schema.ts'));
   const schemaModule = await import('../../../instant.schema.ts');
+  console.log('🔍 schemaModule type:', typeof schemaModule);
+  console.log('🔍 schemaModule keys:', Object.keys(schemaModule));
+  console.log('🔍 schemaModule.default type:', typeof schemaModule.default);
+  
   schema = schemaModule.default || schemaModule;
   if (schema) {
     console.log('✅ Loaded schema from instant.schema.ts');
+    console.log('🔍 Schema type:', typeof schema);
+    console.log('🔍 Schema keys:', Object.keys(schema));
   } else {
     throw new Error('Schema is null or undefined');
   }
 } catch (e) {
-  console.log('⚠️  Could not import from instant.schema.ts:', e.message);
+  console.error('⚠️  Could not import from instant.schema.ts');
+  console.error('Error name:', e.name);
+  console.error('Error message:', e.message);
+  console.error('Error stack:', e.stack);
+  
   try {
     // Fallback: Try to import from compiled schema file
+    console.log('🔍 Trying fallback: instant.schema.js...');
     const schemaPath = join(__dirname, '../../../instant.schema.js');
     schema = require(schemaPath).default || require(schemaPath);
     if (schema && schema !== null) {
@@ -45,102 +57,6 @@ try {
     console.error('❌ All schema loading methods failed. Cannot initialize InstantDB.');
     console.error('Error details:', e1.message);
     schema = null;
-  }
-}
-    
-    // Define schema inline for InstantDB Admin API
-    // This schema matches the one in instant.schema.ts
-    schema = i.schema({
-  entities: {
-    "$files": i.entity({
-      "path": i.string().unique().indexed(),
-      "url": i.string().optional(),
-    }),
-    "$users": i.entity({
-      "email": i.string().unique().indexed().optional(),
-      "imageURL": i.string().optional(),
-      "type": i.string().optional(),
-    }),
-    "flashcardProgress": i.entity({
-      "boxes": i.string(),
-      "jokerPoints": i.number(),
-      "updatedAt": i.number(),
-      "userId": i.string().indexed(),
-    }),
-    "gameRooms": i.entity({
-      "code": i.string().unique().indexed(),
-      "createdAt": i.number(),
-      "currentQuestion": i.string().optional(),
-      "currentRound": i.number(),
-      "hostId": i.string().indexed(),
-      "players": i.string(),
-      "settings": i.string(),
-      "status": i.string(),
-      "updatedAt": i.number(),
-    }),
-    "gameSessions": i.entity({
-      "completed": i.boolean(),
-      "createdAt": i.number(),
-      "level": i.number(),
-      "mode": i.string(),
-      "packId": i.number(),
-      "questions": i.string(),
-      "score": i.number(),
-      "userId": i.string().indexed(),
-    }),
-    "userProgress": i.entity({
-      "correctCount": i.number(),
-      "createdAt": i.number(),
-      "currentBox": i.number(),
-      "lastReviewed": i.number().optional(),
-      "learned": i.boolean(),
-      "level": i.number(),
-      "packCompleted": i.boolean(),
-      "updatedAt": i.number(),
-      "userId": i.string().indexed(),
-      "vocabId": i.string().indexed(),
-      "wrongCount": i.number(),
-    }),
-    "users": i.entity({
-      "createdAt": i.number(),
-      "email": i.string().unique().indexed(),
-      "passwordHash": i.string(),
-      "stats": i.string(),
-      "updatedAt": i.number(),
-      "username": i.string().unique().indexed(),
-    }),
-    "vocabularies": i.entity({
-      "cefr": i.string().indexed(),
-      "createdAt": i.number(),
-      "english": i.string(),
-      "german": i.string(),
-      "level": i.number().indexed(),
-      "vocabId": i.string().indexed(),
-    }),
-  },
-  links: {
-    "$usersLinkedPrimaryUser": {
-      "forward": {
-        "on": "$users",
-        "has": "one",
-        "label": "linkedPrimaryUser",
-        "onDelete": "cascade"
-      },
-      "reverse": {
-        "on": "$users",
-        "has": "many",
-        "label": "linkedGuestUsers"
-      }
-    }
-  },
-  rooms: {}
-});
-    console.log('✅ Built schema using @instantdb/core');
-    } catch (e2) {
-      console.error('❌ Failed to load or build schema:', e2.message);
-      console.error('Stack:', e2.stack);
-      schema = null;
-    }
   }
 }
 
