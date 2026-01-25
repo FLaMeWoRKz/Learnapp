@@ -30,11 +30,29 @@ try {
   try {
     console.log('🔍 Trying dynamic ESM import for @instantdb/core...');
     const instantCoreModule = await import('@instantdb/core');
-    const i = instantCoreModule.i || instantCoreModule.default?.i;
+    console.log('🔍 instantCoreModule keys:', Object.keys(instantCoreModule));
+    console.log('🔍 instantCoreModule.default type:', typeof instantCoreModule.default);
+    if (instantCoreModule.default && typeof instantCoreModule.default === 'object') {
+      console.log('🔍 instantCoreModule.default keys:', Object.keys(instantCoreModule.default));
+    }
+    
+    // Try different ways to get i
+    let i = instantCoreModule.i;
+    if (!i && instantCoreModule.default) {
+      if (typeof instantCoreModule.default === 'object' && instantCoreModule.default.i) {
+        i = instantCoreModule.default.i;
+        console.log('✅ Found i in instantCoreModule.default.i');
+      } else if (typeof instantCoreModule.default === 'function' && instantCoreModule.default.schema) {
+        // default might be the i function itself
+        i = instantCoreModule.default;
+        console.log('✅ Found i as instantCoreModule.default (function)');
+      }
+    }
     
     if (!i || !i.schema) {
       console.error('❌ Could not find i.schema in @instantdb/core');
-      console.error('instantCoreModule keys:', Object.keys(instantCoreModule));
+      console.error('instantCoreModule:', instantCoreModule);
+      console.error('instantCoreModule.default:', instantCoreModule.default);
       throw new Error('i.schema is not available');
     }
     
