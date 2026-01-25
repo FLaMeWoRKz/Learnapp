@@ -162,7 +162,11 @@ const corsOptions = {
 };
 
 const io = new Server(httpServer, {
-  cors: corsOptions
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ["GET", "POST"]
+  }
 });
 
 // Middleware
