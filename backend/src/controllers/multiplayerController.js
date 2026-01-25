@@ -416,15 +416,27 @@ async function finishGame(io, roomCode, room) {
 
 export async function createRoom(req, res, next) {
   try {
+    console.log('📝 Create Room Request received');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('User:', req.user);
+    
     const userId = req.user.userId;
     const { settings } = req.body;
 
+    if (!userId) {
+      console.log('❌ User ID missing');
+      return res.status(400).json({ error: 'User ID fehlt' });
+    }
+
     if (!settings || !settings.rounds || !settings.selectedPacks) {
+      console.log('❌ Invalid settings:', settings);
       return res.status(400).json({ error: 'Settings with rounds and selectedPacks are required' });
     }
 
     const code = generateRoomCode();
     const now = Date.now();
+
+    console.log(`🔨 Creating room: ${code} for user: ${userId}`);
 
     const players = [{
       userId,
@@ -447,25 +459,31 @@ export async function createRoom(req, res, next) {
       });
     }
 
+    // WICHTIG: InstantDB benötigt alle Felder als korrekte Typen
+    // currentQuestion muss String sein (nicht null), weil es im Schema optional ist
     const roomData = {
       code,
       hostId: userId,
-      players: JSON.stringify(players),
+      players: JSON.stringify(players), // Array als JSON String
       settings: JSON.stringify({
         rounds: settings.rounds,
         selectedPacks: settings.selectedPacks,
         timerEnabled: settings.timerEnabled || false,
         timerDuration: settings.timerDuration || 20,
         botCount: botCount
-      }),
+      }), // Object als JSON String
       currentRound: 0,
-      currentQuestion: null,
+      currentQuestion: JSON.stringify(null), // null als JSON String für optionales Feld
       status: 'waiting',
       createdAt: now,
       updatedAt: now
     };
 
+    console.log('🔨 Room data prepared:', JSON.stringify(roomData, null, 2));
+
     const roomId = await dbHelpers.createGameRoom(roomData);
+    console.log('✅ Room created successfully with ID:', roomId);
+    
     activeRooms.set(code, { ...roomData, id: roomId });
 
     res.json({
@@ -484,7 +502,16 @@ export async function createRoom(req, res, next) {
       }
     });
   } catch (error) {
-    next(error);
+    // WICHTIG: Fange alle Fehler ab, damit der Server nicht abstürzt
+    console.error('🚨 CRITICAL ERROR in createRoom:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Sende einen sauberen Fehler zurück
+    res.status(500).json({ 
+      error: 'Serverfehler beim Erstellen des Raums',
+      message: error.message || 'Unbekannter Fehler',
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 }
 

@@ -275,7 +275,13 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.createGameRoom(roomData);
     }
-    return await db.transact([db.tx.gameRooms[id()].update(roomData)]);
+    if (!db || !db.tx || !db.tx.gameRooms) {
+      console.error('❌ InstantDB not properly initialized. db.tx.gameRooms is undefined');
+      throw new Error('Database not initialized. Please check INSTANTDB_APP_ID and INSTANTDB_ADMIN_TOKEN.');
+    }
+    const newId = id();
+    await db.transact([db.tx.gameRooms[newId].update(roomData)]);
+    return newId; // Gib die ID zurück, nicht das Transact-Ergebnis
   },
 
   async getGameRoomByCode(code) {
