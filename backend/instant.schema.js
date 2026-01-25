@@ -1,7 +1,9 @@
 // InstantDB Schema für Backend (JavaScript-Version)
 // Basierend auf instant.schema.ts im Root
 
-import { i } from "@instantdb/core";
+// CommonJS/ESM compatibility: Import default export
+import InstantCore from "@instantdb/core";
+const { i } = InstantCore;
 
 const schema = i.schema({
   entities: {
