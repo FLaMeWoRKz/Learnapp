@@ -18,54 +18,35 @@ const ADMIN_TOKEN = process.env.INSTANTDB_ADMIN_TOKEN || '';
 // Use createRequire to import CommonJS module in ESM
 const require = createRequire(import.meta.url);
 
-// Try to import schema from instant.schema.ts (compiled to JS) or use require
+// Load schema - try importing from TypeScript file (works with tsx loader)
 let schema;
 try {
-  // First try: Import from compiled schema file
-  const schemaPath = join(__dirname, '../../../instant.schema.js');
-  schema = require(schemaPath).default || require(schemaPath);
-  console.log('✅ Loaded schema from instant.schema.js');
-} catch (e) {
-  // Second try: Import directly from TypeScript file (Node.js 20+ supports .ts imports with loader)
-  try {
-    console.log('🔍 Trying to import from instant.schema.ts...');
-    // Use file:// protocol for absolute path
-    const schemaPath = `file://${join(__dirname, '../../../instant.schema.ts')}`;
-    const schemaModule = await import(schemaPath);
-    schema = schemaModule.default || schemaModule;
+  // Try to import directly from TypeScript file (works when running with tsx)
+  console.log('🔍 Trying to import schema from instant.schema.ts...');
+  const schemaModule = await import('../../../instant.schema.ts');
+  schema = schemaModule.default || schemaModule;
+  if (schema) {
     console.log('✅ Loaded schema from instant.schema.ts');
-  } catch (e1) {
-    console.log('⚠️  Could not import from instant.schema.ts:', e1.message);
-  // Fallback: Try to get i from @instantdb/admin (recommended approach)
-    try {
-      console.log('🔍 Trying to import i from @instantdb/admin...');
-      const adminModule = await import('@instantdb/admin');
-      console.log('🔍 adminModule keys:', Object.keys(adminModule));
-      let i = adminModule.i;
-      
-      if (!i && adminModule.default && typeof adminModule.default === 'object') {
-        i = adminModule.default.i;
-        console.log('🔍 Checking adminModule.default for i...');
-      }
-      
-      if (!i) {
-        // Try @instantdb/core as last resort
-        console.log('🔍 i not found in @instantdb/admin, trying @instantdb/core...');
-        const instantCoreModule = await import('@instantdb/core');
-        i = instantCoreModule.i;
-        if (!i && instantCoreModule.default && typeof instantCoreModule.default === 'object') {
-          i = instantCoreModule.default.i;
-        }
-      }
-    
-    if (!i || !i.schema) {
-      console.error('❌ Could not find i.schema in @instantdb/core');
-      console.error('instantCoreModule:', instantCoreModule);
-      console.error('instantCoreModule.default:', instantCoreModule.default);
-      throw new Error('i.schema is not available');
+  } else {
+    throw new Error('Schema is null or undefined');
+  }
+} catch (e) {
+  console.log('⚠️  Could not import from instant.schema.ts:', e.message);
+  try {
+    // Fallback: Try to import from compiled schema file
+    const schemaPath = join(__dirname, '../../../instant.schema.js');
+    schema = require(schemaPath).default || require(schemaPath);
+    if (schema && schema !== null) {
+      console.log('✅ Loaded schema from instant.schema.js');
+    } else {
+      throw new Error('Schema file exists but is null');
     }
-    
-    console.log('✅ Successfully imported i from @instantdb/core');
+  } catch (e1) {
+    console.error('❌ All schema loading methods failed. Cannot initialize InstantDB.');
+    console.error('Error details:', e1.message);
+    schema = null;
+  }
+}
     
     // Define schema inline for InstantDB Admin API
     // This schema matches the one in instant.schema.ts
