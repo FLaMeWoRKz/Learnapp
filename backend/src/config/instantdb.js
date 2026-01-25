@@ -307,7 +307,9 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.createGameSession(sessionData);
     }
-    return await db.transact([db.tx.gameSessions[id()].update(sessionData)]);
+    const sessionId = id();
+    await db.transact([db.tx.gameSessions[sessionId].update(sessionData)]);
+    return sessionId; // Gib nur die ID zurück, nicht das ganze Transact-Ergebnis
   },
 
   async getGameSession(sessionId) {
