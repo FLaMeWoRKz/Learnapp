@@ -131,18 +131,46 @@ async function checkAndImportVocabularies() {
 
 const app = express();
 const httpServer = createServer(app);
+
+// CORS-Konfiguration - Erlaube mehrere Origins
+const allowedOrigins = [
+  "http://localhost:5173",                          // Lokale Entwicklung
+  "https://learnapp-pearl.vercel.app",              // Vercel Frontend
+  "https://learnapp-production-a492.up.railway.app" // Railway Backend (für Health Checks)
+];
+
+// Füge FRONTEND_URL aus .env hinzu, falls vorhanden
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Erlaube Requests ohne Origin (z.B. mobile apps, Postman)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log(`⚠️  CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["Content-Range", "X-Content-Range"],
+  maxAge: 600 // Cache preflight requests for 10 minutes
+};
+
 const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
-    methods: ["GET", "POST"]
-  }
+  cors: corsOptions
 });
 
 // Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
-  credentials: true
-}));
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
