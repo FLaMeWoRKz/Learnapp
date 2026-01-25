@@ -1,10 +1,11 @@
 import { init, id } from '@instantdb/admin';
-import { createRequire } from 'module';
 import { localDbHelpers } from './localStorage.js';
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-// Use createRequire to import CommonJS module in ESM
-const require = createRequire(import.meta.url);
-const { i } = require('@instantdb/core');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Storage mode: 'local' for testing, 'instantdb' for production
 const STORAGE_MODE = process.env.STORAGE_MODE || (process.env.INSTANTDB_APP_ID ? 'instantdb' : 'local');
@@ -14,9 +15,32 @@ const STORAGE_MODE = process.env.STORAGE_MODE || (process.env.INSTANTDB_APP_ID ?
 const APP_ID = process.env.INSTANTDB_APP_ID || '';
 const ADMIN_TOKEN = process.env.INSTANTDB_ADMIN_TOKEN || '';
 
-// Define schema inline for InstantDB Admin API
-// This schema matches the one in instant.schema.ts
-const schema = i.schema({
+// Use createRequire to import CommonJS module in ESM
+const require = createRequire(import.meta.url);
+
+// Try to import schema from instant.schema.ts (compiled to JS) or use require
+let schema;
+try {
+  // First try: Import from compiled schema file
+  const schemaPath = join(__dirname, '../../../instant.schema.js');
+  schema = require(schemaPath).default || require(schemaPath);
+  console.log('✅ Loaded schema from instant.schema.js');
+} catch (e) {
+  // Fallback: Try to require @instantdb/core and build schema
+  try {
+    const instantCore = require('@instantdb/core');
+    console.log('🔍 instantCore keys:', Object.keys(instantCore));
+    const i = instantCore.i || instantCore.default?.i || (instantCore.default || instantCore);
+    
+    if (!i || !i.schema) {
+      console.error('❌ Could not find i.schema in @instantdb/core');
+      console.error('instantCore:', instantCore);
+      throw new Error('i.schema is not available');
+    }
+    
+    // Define schema inline for InstantDB Admin API
+    // This schema matches the one in instant.schema.ts
+    schema = i.schema({
   entities: {
     "$files": i.entity({
       "path": i.string().unique().indexed(),
@@ -101,6 +125,13 @@ const schema = i.schema({
   },
   rooms: {}
 });
+    console.log('✅ Built schema using @instantdb/core');
+  } catch (e2) {
+    console.error('❌ Failed to load or build schema:', e2.message);
+    console.error('Stack:', e2.stack);
+    schema = null;
+  }
+}
 
 // Initialize InstantDB (only if not using local storage)
 let db = null;
