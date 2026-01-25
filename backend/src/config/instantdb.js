@@ -117,6 +117,10 @@ if (STORAGE_MODE === 'instantdb') {
       console.log(`🔍 db.tx available: ${db && db.tx ? 'yes' : 'no'}`);
       if (db && db.tx) {
         console.log(`🔍 db.tx.users available: ${db.tx.users ? 'yes' : 'no'}`);
+        console.log(`🔍 db.tx.vocabularies available: ${db.tx.vocabularies ? 'yes' : 'no'}`);
+        console.log(`🔍 db.tx keys: ${Object.keys(db.tx).join(', ')}`);
+      } else {
+        console.error('❌ db.tx is not available! Schema might not be properly passed.');
       }
     } catch (error) {
       console.error('❌ Failed to initialize InstantDB:', error.message);
@@ -258,6 +262,10 @@ export const dbHelpers = {
   async createVocabulary(vocabData) {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.createVocabulary(vocabData);
+    }
+    if (!db || !db.tx || !db.tx.vocabularies) {
+      console.error('❌ InstantDB not properly initialized. db.tx.vocabularies is undefined');
+      throw new Error('Database not initialized. Please check INSTANTDB_APP_ID and INSTANTDB_ADMIN_TOKEN.');
     }
     const newId = id();
     await db.transact([db.tx.vocabularies[newId].update(vocabData)]);
