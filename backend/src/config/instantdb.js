@@ -1,7 +1,10 @@
 import { init, id } from '@instantdb/admin';
-import pkg from '@instantdb/core';
-const { i } = pkg;
+import { createRequire } from 'module';
 import { localDbHelpers } from './localStorage.js';
+
+// Use createRequire to import CommonJS module in ESM
+const require = createRequire(import.meta.url);
+const { i } = require('@instantdb/core');
 
 // Storage mode: 'local' for testing, 'instantdb' for production
 const STORAGE_MODE = process.env.STORAGE_MODE || (process.env.INSTANTDB_APP_ID ? 'instantdb' : 'local');
