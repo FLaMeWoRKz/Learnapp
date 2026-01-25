@@ -22,8 +22,10 @@ const require = createRequire(import.meta.url);
 let schema;
 try {
   // Try to import directly from TypeScript file (works when running with tsx)
-  // backend/src/config -> backend/src -> backend -> root
-  const schemaPath = join(__dirname, '../../..', 'instant.schema.ts');
+  // __dirname is /app/src/config (when in backend/src/config in Docker)
+  // We need to go to /app/instant.schema.ts
+  // /app/src/config -> /app/src -> /app
+  const schemaPath = join(__dirname, '../../instant.schema.ts');
   console.log('🔍 Trying to import schema from instant.schema.ts...');
   console.log('🔍 __dirname:', __dirname);
   console.log('🔍 Computed schema path:', schemaPath);
@@ -50,7 +52,7 @@ try {
   try {
     // Fallback: Try to import from compiled schema file
     console.log('🔍 Trying fallback: instant.schema.js...');
-    const schemaPath = join(__dirname, '../../..', 'instant.schema.js');
+    const schemaPath = join(__dirname, '../../instant.schema.js');
     schema = require(schemaPath).default || require(schemaPath);
     if (schema && schema !== null) {
       console.log('✅ Loaded schema from instant.schema.js');
