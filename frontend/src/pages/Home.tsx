@@ -4,7 +4,7 @@ import Button from '../components/shared/Button';
 import Card from '../components/shared/Card';
 
 export default function Home() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, guestLogin } = useAuth();
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -87,17 +87,41 @@ export default function Home() {
               Los geht's!
             </h3>
             <p className="text-gray-600 dark:text-gray-300 mb-6 text-center">
-              Registriere dich kostenlos und starte mit dem Lernen.
+              Registriere dich kostenlos oder starte als Gast.
             </p>
-            <div className="flex gap-4">
-              <Link to="/register" className="flex-1">
-                <Button fullWidth>Registrieren</Button>
-              </Link>
-              <Link to="/login" className="flex-1">
-                <Button fullWidth variant="secondary">
-                  Anmelden
-                </Button>
-              </Link>
+            <div className="space-y-3">
+              <div className="flex gap-4">
+                <Link to="/register" className="flex-1">
+                  <Button fullWidth>Registrieren</Button>
+                </Link>
+                <Link to="/login" className="flex-1">
+                  <Button fullWidth variant="secondary">
+                    Anmelden
+                  </Button>
+                </Link>
+              </div>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">oder</span>
+                </div>
+              </div>
+              <Button
+                fullWidth
+                variant="secondary"
+                onClick={async () => {
+                  try {
+                    await guestLogin();
+                    window.location.href = '/';
+                  } catch (error) {
+                    console.error('Gastzugang fehlgeschlagen:', error);
+                  }
+                }}
+              >
+                Als Gast fortfahren
+              </Button>
             </div>
           </Card>
         )}

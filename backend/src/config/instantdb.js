@@ -132,6 +132,15 @@ export const dbHelpers = {
     return result?.users?.[0] || null;
   },
 
+  async updateUser(userId, userData) {
+    if (STORAGE_MODE === 'local' || !db) {
+      return await localDbHelpers.updateUser(userId, userData);
+    }
+    const user = await this.getUserById(userId);
+    if (!user) return null;
+    return await db.transact(db.tx.users[user.id].update({ ...userData, updatedAt: Date.now() }));
+  },
+
   // Vocabulary operations
   async createVocabulary(vocabData) {
     if (STORAGE_MODE === 'local' || !db) {
@@ -144,17 +153,15 @@ export const dbHelpers = {
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.getVocabularies(filters);
     }
-    let query = { vocabularies: {} };
-    
-    if (filters.level) {
-      query.vocabularies.$ = { where: { level: filters.level } };
+    const result = await db.query({ vocabularies: {} });
+    let list = result?.vocabularies || [];
+    if (filters.level) list = list.filter(v => v.level === filters.level);
+    if (filters.levels?.length) {
+      const set = new Set(filters.levels);
+      list = list.filter(v => set.has(v.level));
     }
-    if (filters.cefr) {
-      query.vocabularies.$ = { where: { cefr: filters.cefr } };
-    }
-    
-    const result = await db.query(query);
-    return result?.vocabularies || [];
+    if (filters.cefr) list = list.filter(v => v.cefr === filters.cefr);
+    return list;
   },
 
   async getVocabularyById(vocabId) {
@@ -165,6 +172,15 @@ export const dbHelpers = {
       vocabularies: { $: { where: { vocabId } } } 
     });
     return result?.vocabularies?.[0] || null;
+  },
+
+  async updateVocabulary(vocabId, vocabData) {
+    if (STORAGE_MODE === 'local' || !db) {
+      return await localDbHelpers.updateVocabulary(vocabId, vocabData);
+    }
+    const existing = await this.getVocabularyById(vocabId);
+    if (!existing) return null;
+    return await db.transact(db.tx.vocabularies[existing.id].update(vocabData));
   },
 
   // User Progress operations
@@ -296,5 +312,24 @@ export const dbHelpers = {
       return await localDbHelpers.updateGameSession(sessionId, sessionData);
     }
     return await db.transact(db.tx.gameSessions[sessionId].update(sessionData));
+  },
+
+  async getUserGameSession(userId, mode, level) {
+    if (STORAGE_MODE === 'local' || !db) {
+      return await localDbHelpers.getUserGameSession(userId, mode, level);
+    }
+    const result = await db.query({
+      gameSessions: {
+        $: {
+          where: { 
+            userId,
+            mode,
+            level,
+            completed: false
+          }
+        }
+      }
+    });
+    return result?.gameSessions?.[0] || null;
   }
 };

@@ -3,11 +3,22 @@ import type { User, Vocabulary, UserProgress, FlashcardProgress, GameSession, Ga
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+// Debug: Zeige die verwendete API URL
+console.log('🔍 API_BASE_URL:', API_BASE_URL);
+console.log('🔍 VITE_API_URL env:', import.meta.env.VITE_API_URL);
+console.log('🔍 PROD mode:', import.meta.env.PROD);
+
+// Warnung in der Konsole, wenn API_URL nicht gesetzt ist (in Produktion)
+if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) {
+  console.error('⚠️ VITE_API_URL ist nicht gesetzt! API-Anfragen werden fehlschlagen.');
+}
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // 10 Sekunden Timeout
 });
 
 // Add token to requests
@@ -19,7 +30,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle 401 errors (unauthorized)
+// Handle errors
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -27,6 +38,24 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
+    // Bessere Fehlermeldung für Netzwerkfehler
+    if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      console.error('❌ Backend nicht erreichbar. Prüfe VITE_API_URL:', API_BASE_URL);
+      error.message = 'Backend-Server nicht erreichbar. Bitte prüfe die Konfiguration.';
+    }
+    // Timeout-Fehler
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      console.error('❌ Request timeout. Backend antwortet nicht:', API_BASE_URL);
+      error.message = 'Server antwortet nicht. Bitte prüfe, ob das Backend läuft.';
+    }
+    // Detailliertes Logging für Debugging
+    console.error('API Error:', {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+      url: error.config?.url,
+      baseURL: error.config?.baseURL
+    });
     return Promise.reject(error);
   }
 );
@@ -49,6 +78,14 @@ export const authAPI = {
     return response.data;
   },
 
+  guestLogin: async () => {
+    const response = await api.post('/auth/guest');
+    if (response.data.token) {
+      localStorage.setItem('token', response.data.token);
+    }
+    return response.data;
+  },
+
   getMe: async (): Promise<{ user: User }> => {
     const response = await api.get('/auth/me');
     return response.data;
@@ -61,13 +98,27 @@ export const authAPI = {
 
 // Vocabulary API
 export const vocabAPI = {
-  getVocabularies: async (filters?: { level?: number; cefr?: string }): Promise<{ count: number; vocabularies: Vocabulary[] }> => {
-    const response = await api.get('/vocab', { params: filters });
+  getVocabularies: async (filters?: { level?: number; levels?: number[]; cefr?: string }): Promise<{ count: number; vocabularies: Vocabulary[] }> => {
+    const params: Record<string, string | number> = {};
+    if (filters?.level != null) params.level = filters.level;
+    if (filters?.levels?.length) params.levels = filters.levels.join(',');
+    if (filters?.cefr) params.cefr = filters.cefr;
+    const response = await api.get('/vocab', { params });
     return response.data;
   },
 
   getVocabularyById: async (id: string): Promise<Vocabulary> => {
     const response = await api.get(`/vocab/${id}`);
+    return response.data;
+  },
+
+  getLevelCounts: async (): Promise<{ levels: { level: number; count: number }[] }> => {
+    const response = await api.get('/vocab/level-counts');
+    return response.data;
+  },
+
+  importVocabularies: async (): Promise<{ message: string; imported: number; updated: number; total: number }> => {
+    const response = await api.post('/vocab/import');
     return response.data;
   },
 };
@@ -89,8 +140,18 @@ export const progressAPI = {
     return response.data;
   },
 
-  getFlashcardStatus: async (): Promise<FlashcardProgress> => {
+  completeLevel: async (level: number): Promise<{ completedPacks: number[] }> => {
+    const response = await api.post('/progress/complete-level', { level });
+    return response.data;
+  },
+
+  getFlashcardStatus: async (): Promise<FlashcardProgress & { levelCounts?: { level: number; count: number }[]; levelBoxCounts?: Record<number, Record<number, number>> }> => {
     const response = await api.get('/progress/flashcards');
+    return response.data;
+  },
+
+  updateFlashcardProgress: async (boxes: Record<number, string[]>, jokerPoints?: number): Promise<FlashcardProgress> => {
+    const response = await api.post('/progress/flashcards', { boxes, jokerPoints });
     return response.data;
   },
 };

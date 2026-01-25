@@ -1,4 +1,5 @@
 import { dbHelpers } from '../config/instantdb.js';
+import { ensureVocabulariesImported } from '../utils/ensureVocabImport.js';
 
 export async function getUserProgress(req, res, next) {
   try {
@@ -63,34 +64,34 @@ export async function updateProgress(req, res, next) {
 export async function getCompletedPacks(req, res, next) {
   try {
     const userId = req.user.userId;
-    const progress = await dbHelpers.getAllUserProgress(userId);
-    
-    // Group by level and check completion (>80% correct)
-    const levelStats = {};
-    progress.forEach(p => {
-      const level = p.level;
-      if (!levelStats[level]) {
-        levelStats[level] = { total: 0, correct: 0, completed: false };
-      }
-      levelStats[level].total++;
-      if (p.learned || p.correctCount > 0) {
-        levelStats[level].correct++;
-      }
-    });
-
-    const completedPacks = [];
-    Object.keys(levelStats).forEach(level => {
-      const stats = levelStats[level];
-      const percentage = (stats.correct / stats.total) * 100;
-      if (percentage >= 80) {
-        completedPacks.push(parseInt(level));
-      }
-    });
+    const user = await dbHelpers.getUserById(userId);
+    const completedPacks = (user?.completedLevels || []).slice().sort((a, b) => a - b);
 
     res.json({
-      completedPacks: completedPacks.sort((a, b) => a - b),
-      levelStats
+      completedPacks,
+      levelStats: {}
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function completeLevel(req, res, next) {
+  try {
+    const userId = req.user.userId;
+    const { level } = req.body;
+    if (level == null || level < 1) {
+      return res.status(400).json({ error: 'level (>= 1) is required' });
+    }
+    const user = await dbHelpers.getUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const completed = user.completedLevels || [];
+    if (completed.includes(level)) {
+      return res.json({ completedPacks: completed.slice().sort((a, b) => a - b) });
+    }
+    const updated = [...completed, level].sort((a, b) => a - b);
+    await dbHelpers.updateUser(userId, { completedLevels: updated });
+    res.json({ completedPacks: updated });
   } catch (error) {
     next(error);
   }
@@ -98,22 +99,117 @@ export async function getCompletedPacks(req, res, next) {
 
 export async function getFlashcardStatus(req, res, next) {
   try {
+    await ensureVocabulariesImported();
     const userId = req.user.userId;
-    
-    const flashcardProgress = await dbHelpers.getFlashcardProgress(userId);
-    
+
+    let flashcardProgress = await dbHelpers.getFlashcardProgress(userId);
+
     if (!flashcardProgress) {
-      return res.json({
-        boxes: {
-          1: [],
+      flashcardProgress = {
+        userId,
+        boxes: { 1: [], 2: [], 3: [], 4: [], 5: [] },
+        jokerPoints: 0,
+        updatedAt: Date.now()
+      };
+    }
+
+    const allBoxesEmpty = Object.values(flashcardProgress.boxes || {}).every(box => !box || box.length === 0);
+    if (allBoxesEmpty) {
+      // Lade alle Vokabeln (alle Level) in Box 1
+      const allVocabs = await dbHelpers.getVocabularies({});
+      if (allVocabs.length > 0) {
+        const vocabIds = allVocabs.map(v => v.vocabId);
+        flashcardProgress.boxes = {
+          1: vocabIds,
           2: [],
           3: [],
           4: [],
           5: []
-        },
-        jokerPoints: 0
-      });
+        };
+        flashcardProgress.updatedAt = Date.now();
+        await dbHelpers.updateFlashcardProgress(flashcardProgress);
+      }
+    } else {
+      // Prüfe, ob alle Vokabeln in den Boxen sind, und füge fehlende zu Box 1 hinzu
+      const allVocabs = await dbHelpers.getVocabularies({});
+      const allVocabIds = new Set(allVocabs.map(v => v.vocabId));
+      const boxes = flashcardProgress.boxes || {};
+      const existingVocabIds = new Set();
+      for (let b = 1; b <= 5; b++) {
+        const boxIds = boxes[b] || [];
+        boxIds.forEach(id => existingVocabIds.add(id));
+      }
+      
+      // Finde fehlende Vokabeln
+      const missingVocabIds = [];
+      for (const vocabId of allVocabIds) {
+        if (!existingVocabIds.has(vocabId)) {
+          missingVocabIds.push(vocabId);
+        }
+      }
+      
+      // Füge fehlende Vokabeln zu Box 1 hinzu
+      if (missingVocabIds.length > 0) {
+        if (!boxes[1]) boxes[1] = [];
+        boxes[1] = [...boxes[1], ...missingVocabIds];
+        flashcardProgress.boxes = boxes;
+        flashcardProgress.updatedAt = Date.now();
+        await dbHelpers.updateFlashcardProgress(flashcardProgress);
+      }
     }
+
+    const allVocabs = await dbHelpers.getVocabularies({});
+    const levelCounts = {};
+    const idToLevel = {};
+    for (const v of allVocabs) {
+      levelCounts[v.level] = (levelCounts[v.level] || 0) + 1;
+      idToLevel[v.vocabId] = v.level;
+    }
+    const levels = Object.keys(levelCounts).map(k => parseInt(k, 10)).sort((a, b) => a - b);
+
+    const levelBoxCounts = {};
+    for (const lvl of levels) {
+      levelBoxCounts[lvl] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    }
+    const boxes = flashcardProgress.boxes || {};
+    const vocabLevels = {};
+    for (let b = 1; b <= 5; b++) {
+      const ids = boxes[b] || [];
+      for (const id of ids) {
+        const l = idToLevel[id];
+        vocabLevels[id] = l;
+        if (l != null && levelBoxCounts[l]) levelBoxCounts[l][b]++;
+      }
+    }
+
+    res.json({
+      ...flashcardProgress,
+      levelCounts: levels.map(l => ({ level: l, count: levelCounts[l] })),
+      levelBoxCounts,
+      vocabLevels
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateFlashcardProgress(req, res, next) {
+  try {
+    const userId = req.user.userId;
+    const { boxes, jokerPoints } = req.body;
+
+    if (!boxes) {
+      return res.status(400).json({ error: 'boxes are required' });
+    }
+
+    const flashcardProgress = {
+      userId,
+      boxes,
+      jokerPoints: jokerPoints || 0,
+      updatedAt: Date.now()
+    };
+
+    await dbHelpers.updateFlashcardProgress(flashcardProgress);
 
     res.json(flashcardProgress);
   } catch (error) {

@@ -9,7 +9,7 @@
     "dev": "npm run setup && node --watch src/server.js",
     "dev:local": "npm run setup && node --watch src/server.js",
     "start": "npm run setup && node src/server.js",
-    "import-vocab": "node src/utils/csvParser.js",
+    "import-vocab": "node scripts/import-vocab.js",
     "test": "node scripts/test-local.js",
     "test:local": "node scripts/test-local.js"
   },

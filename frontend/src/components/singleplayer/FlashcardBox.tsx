@@ -4,132 +4,402 @@ import Button from '../shared/Button';
 import Card from '../shared/Card';
 import type { FlashcardProgress, Vocabulary } from '../../types';
 
+type FlashcardData = FlashcardProgress & {
+  levelCounts?: { level: number; count: number }[];
+  levelBoxCounts?: Record<number, Record<number, number>>;
+  vocabLevels?: Record<string, number>;
+};
+
 export default function FlashcardBox() {
-  const [flashcardProgress, setFlashcardProgress] = useState<FlashcardProgress | null>(null);
+  const [data, setData] = useState<FlashcardData | null>(null);
+  const [selectedLevels, setSelectedLevels] = useState<number[]>([]);
   const [currentBox, setCurrentBox] = useState<number>(1);
   const [currentVocab, setCurrentVocab] = useState<Vocabulary | null>(null);
   const [showAnswer, setShowAnswer] = useState(false);
+  const [options, setOptions] = useState<string[]>([]);
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [levelSelectionExpanded, setLevelSelectionExpanded] = useState(true);
 
   useEffect(() => {
     loadFlashcardProgress();
   }, []);
 
+  useEffect(() => {
+    // Automatisch Vokabel laden wenn Level und Box ausgewählt sind, aber noch keine Vokabel geladen wurde
+    if (data && selectedLevels.length > 0 && currentBox > 0 && !currentVocab) {
+      const ids = idsForBoxAndLevels(data, currentBox, selectedLevels);
+      if (ids.length > 0) {
+        loadNextVocab(data, currentBox, selectedLevels);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, selectedLevels, currentBox, currentVocab]);
+
   const loadFlashcardProgress = async () => {
     try {
-      const data = await progressAPI.getFlashcardStatus();
-      setFlashcardProgress(data);
-      loadNextVocab(data, currentBox);
+      const res = await progressAPI.getFlashcardStatus();
+      setData(res as FlashcardData);
+      setCurrentVocab(null);
+      // Standardmäßig Level 1, Box 1 auswählen
+      if (res.levelCounts && res.levelCounts.length > 0 && selectedLevels.length === 0) {
+        setSelectedLevels([1]);
+        setCurrentBox(1);
+      }
     } catch (error) {
       console.error('Error loading flashcard progress:', error);
     }
   };
 
-  const loadNextVocab = async (progress: FlashcardProgress, boxNumber: number) => {
-    const vocabIds = progress.boxes[boxNumber] || [];
-    if (vocabIds.length === 0) {
+  const idsForBoxAndLevel = (d: FlashcardData, boxNumber: number, level: number): string[] => {
+    if (!d?.boxes || !d.vocabLevels) return [];
+    const ids = d.boxes[boxNumber] || [];
+    return ids.filter((id) => d.vocabLevels![id] === level);
+  };
+
+  const idsForBoxAndLevels = (d: FlashcardData, boxNumber: number, levels: number[]): string[] => {
+    if (!d?.boxes || !d.vocabLevels) return [];
+    const ids = d.boxes[boxNumber] || [];
+    return ids.filter((id) => levels.includes(d.vocabLevels![id]));
+  };
+
+  const loadNextVocab = async (d: FlashcardData, boxNumber: number, levels: number[]) => {
+    const ids = idsForBoxAndLevels(d, boxNumber, levels);
+    if (ids.length === 0) {
       setCurrentVocab(null);
       return;
     }
-
-    const randomId = vocabIds[Math.floor(Math.random() * vocabIds.length)];
+    const randomId = ids[Math.floor(Math.random() * ids.length)];
     try {
       const vocab = await vocabAPI.getVocabularyById(randomId);
+      
+      // Lade alle Vokabeln für Multiple Choice
+      const allVocabs = await vocabAPI.getVocabularies({ levels });
+      const wrongVocabs = allVocabs.vocabularies
+        .filter((v) => v.vocabId !== vocab.vocabId)
+        .sort(() => 0.5 - Math.random())
+        .slice(0, 3);
+      const allOptions = [vocab.english, ...wrongVocabs.map((v) => v.english)].sort(
+        () => 0.5 - Math.random()
+      );
+      
       setCurrentVocab(vocab);
+      setOptions(allOptions);
       setShowAnswer(false);
+      setSelectedAnswer(null);
     } catch (error) {
       console.error('Error loading vocabulary:', error);
     }
   };
 
-  const handleAnswer = async (isCorrect: boolean) => {
-    if (!currentVocab || !flashcardProgress) return;
+  const handleAnswer = async (answer: string) => {
+    if (!currentVocab || !data || selectedLevels.length === 0) return;
+    
+    const isCorrect = answer === currentVocab.english;
+    setSelectedAnswer(answer);
 
+    // Nur wenn richtig beantwortet, Box erhöhen
     const newBox = isCorrect
       ? Math.min(5, currentBox + 1)
       : Math.max(1, currentBox - 1);
 
-    // Update boxes
-    const newBoxes = { ...flashcardProgress.boxes };
-    newBoxes[currentBox] = newBoxes[currentBox].filter(id => id !== currentVocab.vocabId);
-    if (!newBoxes[newBox]) {
-      newBoxes[newBox] = [];
-    }
+    const newBoxes = { ...data.boxes };
+    newBoxes[currentBox] = (newBoxes[currentBox] || []).filter((id) => id !== currentVocab.vocabId);
+    if (!newBoxes[newBox]) newBoxes[newBox] = [];
     newBoxes[newBox].push(currentVocab.vocabId);
 
-    // Award joker point if moved up
-    let newJokerPoints = flashcardProgress.jokerPoints;
-    if (isCorrect && newBox > currentBox) {
-      newJokerPoints += 1;
-    }
+    let newJokerPoints = data.jokerPoints;
+    if (isCorrect && newBox > currentBox) newJokerPoints += 1;
 
-    const updatedProgress: FlashcardProgress = {
-      ...flashcardProgress,
+    const updated: FlashcardData = {
+      ...data,
       boxes: newBoxes,
       jokerPoints: newJokerPoints,
       updatedAt: Date.now(),
     };
+    
+    // Aktualisiere levelBoxCounts für alle ausgewählten Level
+    if (updated.levelBoxCounts) {
+      for (const level of selectedLevels) {
+        if (updated.levelBoxCounts[level]) {
+          const lc = { ...updated.levelBoxCounts[level] };
+          lc[currentBox] = Math.max(0, (lc[currentBox] ?? 0) - 1);
+          lc[newBox] = (lc[newBox] ?? 0) + 1;
+          updated.levelBoxCounts = { ...updated.levelBoxCounts, [level]: lc };
+        }
+      }
+    }
 
-    // Update progress in backend
+    // Aktualisiere vocabLevels Mapping
+    if (updated.vocabLevels) {
+      updated.vocabLevels[currentVocab.vocabId] = currentVocab.level;
+    }
+
     await progressAPI.updateProgress(currentVocab.vocabId, isCorrect, currentVocab.level);
+    await progressAPI.updateFlashcardProgress(newBoxes, newJokerPoints);
 
-    setFlashcardProgress(updatedProgress);
-    setCurrentBox(newBox);
-    loadNextVocab(updatedProgress, newBox);
+    setData(updated);
+    // WICHTIG: currentBox NICHT ändern - Benutzer bleibt in der aktuellen Box
+    // Die Vokabel springt in die neue Box, aber der Benutzer bleibt in der aktuellen Box
+    
+    // Nach 1 Sekunde zur nächsten Vokabel aus der aktuellen Box
+    setTimeout(() => {
+      setCurrentVocab(null);
+      setSelectedAnswer(null);
+    }, 1000);
   };
 
-  if (!flashcardProgress) {
+  const toggleLevel = (level: number) => {
+    setSelectedLevels((prev) => {
+      const next = prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level].sort((a, b) => a - b);
+      return next;
+    });
+    // Nur Vokabel zurücksetzen, wenn Level geändert wurde, aber nicht die Box
+    setCurrentVocab(null);
+  };
+
+  const selectBox = (box: number) => {
+    setCurrentBox(box);
+    setCurrentVocab(null);
+    // loadNextVocab wird durch useEffect aufgerufen
+  };
+
+  if (!data) {
     return <Card>Lädt...</Card>;
   }
 
-  if (!currentVocab) {
+  const levelCounts = data.levelCounts || [];
+  const levelBoxCounts = data.levelBoxCounts || {};
+
+  // Berechne Box-Counts für alle ausgewählten Level
+  const boxCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const level of selectedLevels) {
+    const counts = levelBoxCounts[level] || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    for (let b = 1; b <= 5; b++) {
+      boxCounts[b] += counts[b] || 0;
+    }
+  }
+  const totalInLevel = [1, 2, 3, 4, 5].reduce((s, b) => s + (boxCounts[b] || 0), 0);
+  const countByLevel = Object.fromEntries(levelCounts.map((l) => [l.level, l.count]));
+  const totalSelected = selectedLevels.reduce((s, l) => s + (countByLevel[l] ?? 0), 0);
+
+  // Wenn keine Level ausgewählt sind, zeige nur Level-Auswahl
+  if (selectedLevels.length === 0) {
     return (
       <Card>
         <h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">Karteikasten</h3>
-        <p className="text-gray-600 dark:text-gray-300">
-          Box {currentBox} ist leer. Wähle eine andere Box.
+        <p className="text-gray-600 dark:text-gray-300 mb-4">
+          Wähle ein oder mehrere Level aus (mehrfach wählbar). Anschließend siehst du, wie viele Vokabeln der ausgewählten Level in welcher Box liegen.
         </p>
-        <div className="mt-6 flex gap-2">
-          {[1, 2, 3, 4, 5].map((box) => (
-            <Button
-              key={box}
-              variant={box === currentBox ? 'primary' : 'secondary'}
-              onClick={() => {
-                setCurrentBox(box);
-                loadNextVocab(flashcardProgress, box);
-              }}
-            >
-              Box {box} ({flashcardProgress.boxes[box]?.length || 0})
-            </Button>
-          ))}
+        <div className="flex flex-wrap gap-3">
+          {levelCounts.map(({ level, count }) => {
+            const checked = selectedLevels.includes(level);
+            return (
+              <label
+                key={level}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
+                  checked
+                    ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500 text-primary-800 dark:text-primary-200'
+                    : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleLevel(level)}
+                  className="rounded border-gray-300 dark:border-gray-600"
+                />
+                <span className="font-medium">
+                  Level {level} ({count})
+                </span>
+              </label>
+            );
+          })}
         </div>
+        {levelCounts.length > 0 && (
+          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+            💡 Tipp: Du kannst mehrere Level gleichzeitig auswählen, indem du mehrere Checkboxen aktivierst.
+          </p>
+        )}
+        {levelCounts.length === 0 && (
+          <p className="text-gray-500 dark:text-gray-400 mt-4">
+            Keine Level vorhanden. Importiere zuerst Vokabeln.
+          </p>
+        )}
       </Card>
     );
   }
 
+  // Level gewählt, Karte wird nicht angezeigt
+  if (!currentVocab) {
+    return (
+      <Card>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Karteikasten</h3>
+          <div className="flex items-center gap-3">
+            <p className="text-lg font-semibold text-primary-600">
+              Joker-Punkte: {data.jokerPoints}
+            </p>
+          </div>
+        </div>
+
+        {/* Level-Auswahl (minimierbar) */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Level auswählen (mehrfach wählbar)
+            </label>
+            <button
+              onClick={() => setLevelSelectionExpanded(!levelSelectionExpanded)}
+              className="text-sm text-primary-600 dark:text-primary-400 hover:underline"
+            >
+              {levelSelectionExpanded ? '▼ Minimieren' : '▶ Erweitern'}
+            </button>
+          </div>
+          {levelSelectionExpanded && (
+            <>
+              <div className="flex flex-wrap gap-3">
+                {levelCounts.map(({ level, count }) => {
+                  const checked = selectedLevels.includes(level);
+                  return (
+                    <label
+                      key={level}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
+                        checked
+                          ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500 text-primary-800 dark:text-primary-200'
+                          : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleLevel(level)}
+                        className="rounded border-gray-300 dark:border-gray-600"
+                      />
+                      <span className="font-medium">
+                        Level {level} ({count})
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {levelCounts.length > 0 && (
+                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  {selectedLevels.length} Level ausgewählt · {totalSelected} Vokabeln gesamt
+                </p>
+              )}
+            </>
+          )}
+          {!levelSelectionExpanded && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {selectedLevels.length} Level ausgewählt · {totalSelected} Vokabeln gesamt
+            </p>
+          )}
+        </div>
+
+        <p className="text-gray-600 dark:text-gray-300 mb-4">
+          {totalInLevel} Vokabeln in den Boxen
+        </p>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {[1, 2, 3, 4, 5].map((box) => (
+            <Button
+              key={box}
+              variant={box === currentBox ? 'primary' : 'secondary'}
+              onClick={() => selectBox(box)}
+            >
+              Box {box} ({boxCounts[box] ?? 0})
+            </Button>
+          ))}
+        </div>
+        {totalInLevel === 0 ? (
+          <p className="text-gray-500 dark:text-gray-400">
+            Keine Vokabeln aus den ausgewählten Leveln in den Boxen. Beim ersten Start werden alle Vokabeln in Box 1 geladen.
+          </p>
+        ) : (
+          <p className="text-gray-500 dark:text-gray-400">
+            Wähle eine Box zum Üben. Box {currentBox} hat {boxCounts[currentBox] ?? 0} Vokabeln aus den ausgewählten Leveln.
+          </p>
+        )}
+      </Card>
+    );
+  }
+
+  // Kartenansicht
   return (
     <Card>
       <div className="mb-6">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Karteikasten</h3>
           <p className="text-lg font-semibold text-primary-600">
-            Joker-Punkte: {flashcardProgress.jokerPoints}
+            Joker-Punkte: {data.jokerPoints}
           </p>
         </div>
-        <div className="flex gap-2">
+
+        {/* Level-Auswahl (minimierbar) */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Level auswählen (mehrfach wählbar)
+            </label>
+            <button
+              onClick={() => setLevelSelectionExpanded(!levelSelectionExpanded)}
+              className="text-sm text-primary-600 dark:text-primary-400 hover:underline"
+            >
+              {levelSelectionExpanded ? '▼ Minimieren' : '▶ Erweitern'}
+            </button>
+          </div>
+          {levelSelectionExpanded && (
+            <>
+              <div className="flex flex-wrap gap-3">
+                {levelCounts.map(({ level, count }) => {
+                  const checked = selectedLevels.includes(level);
+                  return (
+                    <label
+                      key={level}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
+                        checked
+                          ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500 text-primary-800 dark:text-primary-200'
+                          : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleLevel(level)}
+                        className="rounded border-gray-300 dark:border-gray-600"
+                      />
+                      <span className="font-medium">
+                        Level {level} ({count})
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {levelCounts.length > 0 && (
+                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  {selectedLevels.length} Level ausgewählt · {totalSelected} Vokabeln gesamt
+                </p>
+              )}
+            </>
+          )}
+          {!levelSelectionExpanded && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {selectedLevels.length} Level ausgewählt · {totalSelected} Vokabeln gesamt
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-2 items-center">
           {[1, 2, 3, 4, 5].map((box) => (
             <button
               key={box}
-              onClick={() => {
-                setCurrentBox(box);
-                loadNextVocab(flashcardProgress, box);
-              }}
+              onClick={() => selectBox(box)}
               className={`px-3 py-1 rounded ${
                 box === currentBox
                   ? 'bg-primary-500 text-white'
                   : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
               }`}
             >
-              Box {box} ({flashcardProgress.boxes[box]?.length || 0})
+              Box {box} ({boxCounts[box] ?? 0})
             </button>
           ))}
         </div>
@@ -139,35 +409,32 @@ export default function FlashcardBox() {
         <h4 className="text-3xl font-bold mb-4 text-gray-900 dark:text-white">
           {currentVocab.german}
         </h4>
-        {showAnswer && (
-          <p className="text-2xl text-primary-600 font-semibold">{currentVocab.english}</p>
+        {selectedAnswer !== null && (
+          <p className={`text-xl font-semibold ${
+            selectedAnswer === currentVocab.english ? 'text-green-600' : 'text-red-600'
+          }`}>
+            {selectedAnswer === currentVocab.english ? '✓ Richtig!' : `✗ Falsch. Richtig: ${currentVocab.english}`}
+          </p>
         )}
       </div>
 
-      {!showAnswer ? (
-        <Button fullWidth size="lg" onClick={() => setShowAnswer(true)}>
-          Antwort anzeigen
-        </Button>
-      ) : (
-        <div className="flex gap-4">
-          <Button
-            fullWidth
-            variant="danger"
-            size="lg"
-            onClick={() => handleAnswer(false)}
-          >
-            Falsch
-          </Button>
-          <Button
-            fullWidth
-            variant="success"
-            size="lg"
-            onClick={() => handleAnswer(true)}
-          >
-            Richtig
-          </Button>
-        </div>
-      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {options.map((opt, i) => {
+          let variant: 'primary' | 'secondary' | 'success' | 'danger' = 'secondary';
+          if (selectedAnswer === opt) variant = opt === currentVocab.english ? 'success' : 'danger';
+          return (
+            <Button
+              key={i}
+              variant={variant}
+              size="lg"
+              onClick={() => !selectedAnswer && handleAnswer(opt)}
+              disabled={!!selectedAnswer}
+            >
+              {opt}
+            </Button>
+          );
+        })}
+      </div>
     </Card>
   );
 }

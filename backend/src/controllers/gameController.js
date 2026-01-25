@@ -10,6 +10,30 @@ export async function startGame(req, res, next) {
       return res.status(400).json({ error: 'Invalid game mode' });
     }
 
+    // Prüfe, ob es bereits eine laufende Session für dieses Level gibt
+    if (mode === 'level' && level) {
+      const existingSession = await dbHelpers.getUserGameSession(userId, mode, level);
+      if (existingSession) {
+        // Lade die Vokabeln für die Session
+        const questions = existingSession.questions || [];
+        const questionVocabs = await Promise.all(
+          questions.map(q => dbHelpers.getVocabularyById(q.vocabId))
+        );
+        
+        res.json({
+          sessionId: existingSession.id,
+          mode,
+          questionCount: questions.length,
+          questions: questionVocabs.map(v => ({
+            id: v.vocabId,
+            german: v.german,
+            level: v.level
+          }))
+        });
+        return;
+      }
+    }
+
     // Get vocabularies based on mode
     let vocabularies = [];
     
@@ -32,8 +56,9 @@ export async function startGame(req, res, next) {
       return res.status(404).json({ error: 'No vocabularies found for this mode' });
     }
 
-    // Select random vocabularies (10-20 questions)
-    const questionCount = Math.min(15, vocabularies.length);
+    const questionCount = mode === 'level'
+      ? Math.min(100, vocabularies.length)
+      : Math.min(15, vocabularies.length);
     const selectedVocabs = getRandomVocabularies(vocabularies, questionCount);
 
     // Create game session

@@ -24,20 +24,55 @@ function readJSON(filePath, defaultValue = []) {
   try {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, 'utf-8');
+      if (!content || content.trim() === '') {
+        console.warn(`⚠️ ${filePath} ist leer, verwende Standardwert`);
+        return defaultValue;
+      }
       return JSON.parse(content);
     }
   } catch (error) {
-    console.error(`Error reading ${filePath}:`, error);
+    console.error(`❌ Error reading ${filePath}:`, error.message);
+    // Wenn die Datei beschädigt ist, benenne sie um und erstelle eine neue
+    if (fs.existsSync(filePath)) {
+      const backupPath = `${filePath}.backup.${Date.now()}`;
+      try {
+        fs.renameSync(filePath, backupPath);
+        console.log(`📦 Beschädigte Datei gesichert als: ${backupPath}`);
+      } catch (renameError) {
+        console.error(`❌ Konnte beschädigte Datei nicht umbenennen:`, renameError);
+      }
+    }
   }
   return defaultValue;
 }
 
 function writeJSON(filePath, data) {
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    // Erstelle Backup vor dem Schreiben
+    if (fs.existsSync(filePath)) {
+      const backupPath = `${filePath}.backup.${Date.now()}`;
+      try {
+        fs.copyFileSync(filePath, backupPath);
+      } catch (backupError) {
+        // Backup-Fehler ignorieren, nicht kritisch
+      }
+    }
+    // Schreibe atomar: zuerst in temporäre Datei, dann umbenennen
+    const tempPath = `${filePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tempPath, filePath);
     return true;
   } catch (error) {
-    console.error(`Error writing ${filePath}:`, error);
+    console.error(`❌ Error writing ${filePath}:`, error);
+    // Lösche temporäre Datei falls vorhanden
+    const tempPath = `${filePath}.tmp`;
+    if (fs.existsSync(tempPath)) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (unlinkError) {
+        // Ignorieren
+      }
+    }
     return false;
   }
 }
@@ -102,20 +137,33 @@ export const localDbHelpers = {
 
   async getVocabularies(filters = {}) {
     let vocabularies = readJSON(VOCAB_FILE, []);
-    
     if (filters.level) {
       vocabularies = vocabularies.filter(v => v.level === filters.level);
+    }
+    if (filters.levels && filters.levels.length) {
+      const set = new Set(filters.levels);
+      vocabularies = vocabularies.filter(v => set.has(v.level));
     }
     if (filters.cefr) {
       vocabularies = vocabularies.filter(v => v.cefr === filters.cefr);
     }
-    
     return vocabularies;
   },
 
   async getVocabularyById(vocabId) {
     const vocabularies = readJSON(VOCAB_FILE, []);
     return vocabularies.find(v => v.vocabId === vocabId) || null;
+  },
+
+  async updateVocabulary(vocabId, vocabData) {
+    const vocabularies = readJSON(VOCAB_FILE, []);
+    const index = vocabularies.findIndex(v => v.vocabId === vocabId);
+    if (index !== -1) {
+      vocabularies[index] = { ...vocabularies[index], ...vocabData, updatedAt: Date.now() };
+      writeJSON(VOCAB_FILE, vocabularies);
+      return vocabularies[index];
+    }
+    return null;
   },
 
   // User Progress operations
@@ -232,5 +280,15 @@ export const localDbHelpers = {
       return sessions[index];
     }
     return null;
+  },
+
+  async getUserGameSession(userId, mode, level) {
+    const sessions = readJSON(GAMESESSIONS_FILE, []);
+    return sessions.find(s => 
+      s.userId === userId && 
+      s.mode === mode && 
+      s.level === level && 
+      !s.completed
+    ) || null;
   }
 };

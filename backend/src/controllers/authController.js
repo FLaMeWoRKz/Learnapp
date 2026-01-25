@@ -110,6 +110,60 @@ export async function login(req, res, next) {
   }
 }
 
+export async function guestLogin(req, res, next) {
+  try {
+    // Generiere zufälligen Benutzernamen
+    const adjectives = ['Schnell', 'Klug', 'Mutig', 'Froh', 'Stark', 'Kreativ', 'Clever', 'Flink', 'Tapfer', 'Weise'];
+    const nouns = ['Löwe', 'Adler', 'Falke', 'Wolf', 'Bär', 'Tiger', 'Fuchs', 'Hase', 'Hirsch', 'Falke'];
+    const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
+    const randomNumber = Math.floor(Math.random() * 1000);
+    const username = `${randomAdjective}${randomNoun}${randomNumber}`;
+    
+    // Erstelle temporäre E-Mail für Gast
+    const email = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}@guest.local`;
+    
+    // Erstelle Gast-Benutzer ohne Passwort
+    const now = Date.now();
+    const userData = {
+      email,
+      username,
+      passwordHash: '', // Kein Passwort für Gäste
+      isGuest: true,
+      createdAt: now,
+      updatedAt: now,
+      stats: {
+        totalWordsLearned: 0,
+        totalJokerPoints: 0,
+        gamesPlayed: 0,
+        gamesWon: 0
+      }
+    };
+
+    const userId = await dbHelpers.createUser(userData);
+
+    // Generate token
+    const token = generateToken({
+      userId,
+      email,
+      username
+    });
+
+    res.json({
+      message: 'Gastzugang erfolgreich',
+      token,
+      user: {
+        id: userId,
+        email,
+        username,
+        isGuest: true
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getMe(req, res, next) {
   try {
     const user = await dbHelpers.getUserById(req.user.userId);
@@ -123,7 +177,8 @@ export async function getMe(req, res, next) {
         email: user.email,
         username: user.username,
         stats: user.stats,
-        createdAt: user.createdAt
+        createdAt: user.createdAt,
+        isGuest: user.isGuest || false
       }
     });
   } catch (error) {
