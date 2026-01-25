@@ -52,9 +52,9 @@ const schema = i.schema({
     "gameSessions": i.entity({
       "completed": i.boolean(),
       "createdAt": i.number(),
-      "level": i.number(),
+      "level": i.number().optional(),
       "mode": i.string(),
-      "packId": i.number(),
+      "packId": i.number().optional(),
       "questions": i.json(),
       "score": i.number(),
       "userId": i.string().indexed(),
