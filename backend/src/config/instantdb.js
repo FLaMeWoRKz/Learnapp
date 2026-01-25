@@ -26,17 +26,19 @@ try {
   schema = require(schemaPath).default || require(schemaPath);
   console.log('✅ Loaded schema from instant.schema.js');
 } catch (e) {
-  // Fallback: Try to require @instantdb/core and build schema
+  // Fallback: Try dynamic ESM import for @instantdb/core (works better than require)
   try {
-    const instantCore = require('@instantdb/core');
-    console.log('🔍 instantCore keys:', Object.keys(instantCore));
-    const i = instantCore.i || instantCore.default?.i || (instantCore.default || instantCore);
+    console.log('🔍 Trying dynamic ESM import for @instantdb/core...');
+    const instantCoreModule = await import('@instantdb/core');
+    const i = instantCoreModule.i || instantCoreModule.default?.i;
     
     if (!i || !i.schema) {
       console.error('❌ Could not find i.schema in @instantdb/core');
-      console.error('instantCore:', instantCore);
+      console.error('instantCoreModule keys:', Object.keys(instantCoreModule));
       throw new Error('i.schema is not available');
     }
+    
+    console.log('✅ Successfully imported i from @instantdb/core');
     
     // Define schema inline for InstantDB Admin API
     // This schema matches the one in instant.schema.ts
