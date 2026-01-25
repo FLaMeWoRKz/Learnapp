@@ -19,15 +19,15 @@ export default function Multiplayer() {
     if (user && view !== 'menu') {
       const socket = connectSocket(user.id, user.username);
       
-      socketEvents.onRoomUpdated(socket, (data) => {
-        setRoom(data.room);
+      socketEvents.onRoomUpdated(socket, (roomData) => {
+        setRoom(roomData.room);
       });
 
       socketEvents.onGameStarted(socket, () => {
         setView('game');
       });
 
-      socketEvents.onQuestion(socket, () => {
+      socketEvents.onQuestion(socket, (_data) => {
         setView('game');
       });
 
