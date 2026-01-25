@@ -165,8 +165,14 @@ const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins,
     credentials: true,
-    methods: ["GET", "POST"]
-  }
+    methods: ["GET", "POST"],
+    allowedHeaders: ["my-custom-header", "Content-Type", "Authorization"]
+  },
+  // Diese Einstellungen helfen bei Proxy-Problemen (502 Fehler)
+  transports: ['polling', 'websocket'],
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 // Middleware
