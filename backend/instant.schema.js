@@ -1,9 +1,25 @@
 // InstantDB Schema für Backend (JavaScript-Version)
 // Basierend auf instant.schema.ts im Root
 
-// CommonJS/ESM compatibility: Import default export
-import InstantCore from "@instantdb/core";
-const { i } = InstantCore;
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
+// Lade das Paket sicher über require
+const instantCore = require("@instantdb/core");
+
+// Hole 'i' - mit Fallback für verschiedene Export-Strukturen
+const i = instantCore.i || instantCore.default?.i || instantCore.default;
+
+// Debugging: Zeige uns in den Logs, ob 'i' geladen wurde
+if (!i || !i.schema) {
+  console.error("🚨 CRITICAL ERROR: Could not load 'i' from @instantdb/core");
+  console.log("Loaded module keys:", Object.keys(instantCore));
+  if (instantCore.default) {
+    console.log("Default export keys:", Object.keys(instantCore.default));
+  }
+} else {
+  console.log("✅ Successfully loaded InstantDB 'i' builder");
+}
 
 const schema = i.schema({
   entities: {
