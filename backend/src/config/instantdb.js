@@ -18,15 +18,14 @@ const ADMIN_TOKEN = process.env.INSTANTDB_ADMIN_TOKEN || '';
 // Use createRequire to import CommonJS module in ESM
 const require = createRequire(import.meta.url);
 
-// Load schema - try importing from TypeScript file (works with tsx loader)
+// Load schema - try importing from JavaScript file
 let schema;
 try {
-  // Try to import directly from TypeScript file (works when running with tsx)
-  // __dirname is /app/src/config (when in backend/src/config in Docker)
-  // We need to go to /app/instant.schema.ts
-  // /app/src/config -> /app/src -> /app
-  const schemaPath = join(__dirname, '../../instant.schema.ts');
-  console.log('🔍 Trying to import schema from instant.schema.ts...');
+  // Import JavaScript version of schema (in same directory as backend)
+  // __dirname is /app/src/config
+  // instant.schema.js is at /app/instant.schema.js
+  const schemaPath = join(__dirname, '../../instant.schema.js');
+  console.log('🔍 Trying to import schema from instant.schema.js...');
   console.log('🔍 __dirname:', __dirname);
   console.log('🔍 Computed schema path:', schemaPath);
   
@@ -37,33 +36,18 @@ try {
   
   schema = schemaModule.default || schemaModule;
   if (schema) {
-    console.log('✅ Loaded schema from instant.schema.ts');
+    console.log('✅ Loaded schema from instant.schema.js');
     console.log('🔍 Schema type:', typeof schema);
     console.log('🔍 Schema keys:', Object.keys(schema));
   } else {
     throw new Error('Schema is null or undefined');
   }
 } catch (e) {
-  console.error('⚠️  Could not import from instant.schema.ts');
+  console.error('⚠️  Could not import schema');
   console.error('Error name:', e.name);
   console.error('Error message:', e.message);
   console.error('Error stack:', e.stack);
-  
-  try {
-    // Fallback: Try to import from compiled schema file
-    console.log('🔍 Trying fallback: instant.schema.js...');
-    const schemaPath = join(__dirname, '../../instant.schema.js');
-    schema = require(schemaPath).default || require(schemaPath);
-    if (schema && schema !== null) {
-      console.log('✅ Loaded schema from instant.schema.js');
-    } else {
-      throw new Error('Schema file exists but is null');
-    }
-  } catch (e1) {
-    console.error('❌ All schema loading methods failed. Cannot initialize InstantDB.');
-    console.error('Error details:', e1.message);
-    schema = null;
-  }
+  schema = null;
 }
 
 // Initialize InstantDB (only if not using local storage)

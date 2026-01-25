@@ -28,9 +28,8 @@ COPY --from=builder /app/src ./src
 # Copy CSV file for automatic import
 COPY --from=builder /app/vokabeln.csv ./vokabeln.csv
 
-# Copy InstantDB schema file (it's in the root, one level up from backend/)
-# We need to copy it from the build context
-COPY ../instant.schema.ts ./instant.schema.ts
+# Copy InstantDB schema file (JavaScript version in backend directory)
+COPY --from=builder /app/instant.schema.js ./instant.schema.js
 
 # Expose port
 EXPOSE 3000
