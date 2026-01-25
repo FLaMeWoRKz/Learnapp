@@ -70,6 +70,8 @@ export async function startGame(req, res, next) {
     const sessionData = {
       userId,
       mode,
+      level: level || 0,      // Standardwert 0 wenn nicht vorhanden
+      packId: packId || 0,    // Standardwert 0 wenn nicht vorhanden
       questions: JSON.stringify(selectedVocabs.map(v => ({
         vocabId: v.vocabId,
         answered: false,
@@ -80,14 +82,6 @@ export async function startGame(req, res, next) {
       completed: false,
       createdAt: Date.now()
     };
-
-    // Only add level and packId if they have values
-    if (level != null) {
-      sessionData.level = level;
-    }
-    if (packId != null) {
-      sessionData.packId = packId;
-    }
 
     const sessionId = await dbHelpers.createGameSession(sessionData);
 
