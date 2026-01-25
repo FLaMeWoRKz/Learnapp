@@ -27,8 +27,11 @@ export async function getVocabularies(req, res, next) {
       console.log('⚠️ Keine Vokabeln gefunden. Versuche automatischen Import...');
       try {
         const possiblePaths = [
-          path.join(__dirname, '../../vokabeln.csv'),
-          path.join(process.cwd(), 'vokabeln.csv'),
+          path.join(__dirname, '../../vokabeln.csv'), // Backend root (lokal)
+          path.join(process.cwd(), 'vokabeln.csv'), // Current working directory
+          path.join(process.cwd(), 'backend/vokabeln.csv'), // Railway/Root
+          '/app/vokabeln.csv', // Docker/Railway absolute path
+          '/app/backend/vokabeln.csv', // Docker/Railway backend path
         ];
         
         let csvPath = null;
@@ -110,24 +113,36 @@ export async function getLevelCounts(req, res, next) {
 
 export async function importVocabularies(req, res, next) {
   try {
-    // In production, check if user is admin
     // Try multiple possible paths
     const possiblePaths = [
-      path.join(__dirname, '../../vokabeln.csv'), // Backend root
-      path.join(__dirname, '../../../../lernprogramm dadi/vokabeln.csv'), // Original location
+      path.join(__dirname, '../../vokabeln.csv'), // Backend root (lokal)
       path.join(process.cwd(), 'vokabeln.csv'), // Current working directory
+      path.join(process.cwd(), 'backend/vokabeln.csv'), // Railway/Root
+      '/app/vokabeln.csv', // Docker/Railway absolute path
+      '/app/backend/vokabeln.csv', // Docker/Railway backend path
     ];
     
     let csvPath = null;
     for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
-        csvPath = p;
-        break;
+      try {
+        if (fs.existsSync(p)) {
+          csvPath = p;
+          console.log(`📂 CSV-Datei gefunden: ${csvPath}`);
+          break;
+        }
+      } catch (e) {
+        // Ignoriere Fehler beim Prüfen
       }
     }
     
     if (!csvPath) {
-      return res.status(404).json({ error: 'CSV file not found. Tried: ' + possiblePaths.join(', ') });
+      console.error('❌ CSV-Datei nicht gefunden in folgenden Pfaden:');
+      possiblePaths.forEach(p => console.error(`   - ${p}`));
+      return res.status(404).json({ 
+        error: 'CSV file not found',
+        triedPaths: possiblePaths,
+        hint: 'Bitte stelle sicher, dass vokabeln.csv im Backend-Verzeichnis liegt und im Git-Repository ist!'
+      });
     }
 
     const csvContent = fs.readFileSync(csvPath, 'utf-8');
@@ -136,6 +151,7 @@ export async function importVocabularies(req, res, next) {
     // Import to database (update existing, create new)
     let imported = 0;
     let updated = 0;
+    let errors = 0;
     for (const vocab of vocabularies) {
       try {
         const existing = await dbHelpers.getVocabularyById(vocab.vocabId);
@@ -149,16 +165,21 @@ export async function importVocabularies(req, res, next) {
         }
       } catch (error) {
         console.error(`Error importing vocab ${vocab.vocabId}:`, error);
+        errors++;
       }
     }
+
+    console.log(`✅ Import abgeschlossen: ${imported} importiert, ${updated} aktualisiert, ${errors} Fehler`);
 
     res.json({
       message: 'Import completed',
       imported,
       updated,
+      errors,
       total: vocabularies.length
     });
   } catch (error) {
+    console.error('❌ Fehler beim Import:', error);
     next(error);
   }
 }

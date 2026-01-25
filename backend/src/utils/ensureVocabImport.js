@@ -15,19 +15,30 @@ export async function ensureVocabulariesImported() {
   const all = await dbHelpers.getVocabularies({});
   if (all.length > 0) return;
 
+  // Erweiterte Pfadsuche für verschiedene Deployment-Umgebungen
   const possiblePaths = [
-    path.join(__dirname, '../../vokabeln.csv'),
-    path.join(process.cwd(), 'vokabeln.csv'),
+    path.join(__dirname, '../../vokabeln.csv'), // Backend root (lokal)
+    path.join(process.cwd(), 'vokabeln.csv'), // Current working directory
+    path.join(process.cwd(), 'backend/vokabeln.csv'), // Railway/Root
+    path.join(__dirname, '../../../vokabeln.csv'), // Alternative Backend root
+    '/app/vokabeln.csv', // Docker/Railway absolute path
+    '/app/backend/vokabeln.csv', // Docker/Railway backend path
   ];
   let csvPath = null;
   for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      csvPath = p;
-      break;
+    try {
+      if (fs.existsSync(p)) {
+        csvPath = p;
+        break;
+      }
+    } catch (e) {
+      // Ignoriere Fehler beim Prüfen
     }
   }
   if (!csvPath) {
-    console.warn('⚠️ vokabeln.csv nicht gefunden. Kein Auto-Import.');
+    console.warn('⚠️ vokabeln.csv nicht gefunden in folgenden Pfaden:');
+    possiblePaths.forEach(p => console.warn(`   - ${p}`));
+    console.warn('⚠️ Kein Auto-Import. Bitte manuell importieren.');
     return;
   }
 

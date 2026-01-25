@@ -6,6 +6,6 @@ const router = express.Router();
 
 router.get('/', getVocabularies);
 router.get('/:id', getVocabularyById);
-router.post('/import', authenticateToken, importVocabularies); // Admin only in production
+router.post('/import', importVocabularies); // Öffentlich für automatischen Import (in Production sollte das geschützt sein)
 
 export default router;

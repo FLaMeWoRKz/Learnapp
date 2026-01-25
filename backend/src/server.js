@@ -29,31 +29,56 @@ async function checkAndImportVocabularies() {
     if (existingVocabs.length === 0) {
       console.log('📚 Keine Vokabeln gefunden. Starte automatischen Import...');
       
+      // Erweiterte Pfadsuche für verschiedene Deployment-Umgebungen
       const possiblePaths = [
-        path.join(__dirname, '../vokabeln.csv'),
-        path.join(process.cwd(), 'vokabeln.csv'),
+        path.join(__dirname, '../vokabeln.csv'), // Backend root (lokal)
+        path.join(process.cwd(), 'vokabeln.csv'), // Current working directory
+        path.join(process.cwd(), 'backend/vokabeln.csv'), // Railway/Root
+        path.join(__dirname, '../../vokabeln.csv'), // Alternative Backend root
+        '/app/vokabeln.csv', // Docker/Railway absolute path
+        '/app/backend/vokabeln.csv', // Docker/Railway backend path
       ];
       
       let csvPath = null;
       for (const p of possiblePaths) {
-        if (fs.existsSync(p)) {
-          csvPath = p;
-          break;
+        try {
+          if (fs.existsSync(p)) {
+            csvPath = p;
+            console.log(`📂 CSV-Datei gefunden: ${csvPath}`);
+            break;
+          }
+        } catch (e) {
+          // Ignoriere Fehler beim Prüfen
         }
       }
       
       if (csvPath) {
-        console.log(`📂 CSV-Datei gefunden: ${csvPath}`);
-        const result = await importVocabulariesFromFile(csvPath);
-        console.log(`✅ Import abgeschlossen: ${result.imported} Vokabeln importiert (${result.errors} Fehler)`);
+        try {
+          const result = await importVocabulariesFromFile(csvPath);
+          console.log(`✅ Import abgeschlossen: ${result.imported} Vokabeln importiert, ${result.updated} aktualisiert (${result.errors} Fehler)`);
+        } catch (importError) {
+          console.error('❌ Fehler beim Importieren:', importError);
+          // Versuche es erneut nach kurzer Wartezeit
+          console.log('⏳ Warte 2 Sekunden und versuche erneut...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          try {
+            const result = await importVocabulariesFromFile(csvPath);
+            console.log(`✅ Wiederholter Import erfolgreich: ${result.imported} Vokabeln importiert`);
+          } catch (retryError) {
+            console.error('❌ Wiederholter Import fehlgeschlagen:', retryError);
+          }
+        }
       } else {
-        console.log('⚠️ CSV-Datei nicht gefunden. Bitte manuell importieren mit: npm run import-vocab');
+        console.error('❌ CSV-Datei nicht gefunden in folgenden Pfaden:');
+        possiblePaths.forEach(p => console.error(`   - ${p}`));
+        console.error('⚠️ Bitte stelle sicher, dass vokabeln.csv im Backend-Verzeichnis liegt und im Git-Repository ist!');
       }
     } else {
       console.log(`✅ ${existingVocabs.length} Vokabeln bereits in der Datenbank`);
     }
   } catch (error) {
     console.error('❌ Fehler beim automatischen Import:', error);
+    console.error('Stack:', error.stack);
   }
 }
 
