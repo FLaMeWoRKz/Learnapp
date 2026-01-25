@@ -25,6 +25,9 @@ RUN npm ci --only=production
 # Copy built application
 COPY --from=builder /app/src ./src
 
+# Copy CSV file for automatic import (wichtig: muss nach src kopiert werden)
+COPY --from=builder /app/vokabeln.csv ./vokabeln.csv
+
 # Expose port
 EXPOSE 3000
 

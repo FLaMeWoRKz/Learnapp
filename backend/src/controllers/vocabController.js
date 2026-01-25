@@ -26,12 +26,14 @@ export async function getVocabularies(req, res, next) {
     if (vocabularies.length === 0 && !filters.level && !filters.cefr && !filters.levels?.length) {
       console.log('⚠️ Keine Vokabeln gefunden. Versuche automatischen Import...');
       try {
+        // WICHTIG: Railway setzt Root Directory auf 'backend', daher ist process.cwd() bereits /app
         const possiblePaths = [
-          path.join(__dirname, '../../vokabeln.csv'), // Backend root (lokal)
-          path.join(process.cwd(), 'vokabeln.csv'), // Current working directory
-          path.join(process.cwd(), 'backend/vokabeln.csv'), // Railway/Root
-          '/app/vokabeln.csv', // Docker/Railway absolute path
+          path.join(__dirname, '../../vokabeln.csv'), // Backend root (lokal: backend/vokabeln.csv)
+          path.join(process.cwd(), 'vokabeln.csv'), // Railway: /app/vokabeln.csv (wenn Root Directory = backend)
+          path.join(process.cwd(), 'backend/vokabeln.csv'), // Fallback: /app/backend/vokabeln.csv
+          '/app/vokabeln.csv', // Docker/Railway absolute path (wenn Root Directory = backend)
           '/app/backend/vokabeln.csv', // Docker/Railway backend path
+          path.join(__dirname, '../../../vokabeln.csv'), // Alternative: von src/controllers aus
         ];
         
         let csvPath = null;
@@ -113,13 +115,14 @@ export async function getLevelCounts(req, res, next) {
 
 export async function importVocabularies(req, res, next) {
   try {
-    // Try multiple possible paths
+    // WICHTIG: Railway setzt Root Directory auf 'backend', daher ist process.cwd() bereits /app
     const possiblePaths = [
-      path.join(__dirname, '../../vokabeln.csv'), // Backend root (lokal)
-      path.join(process.cwd(), 'vokabeln.csv'), // Current working directory
-      path.join(process.cwd(), 'backend/vokabeln.csv'), // Railway/Root
-      '/app/vokabeln.csv', // Docker/Railway absolute path
+      path.join(__dirname, '../../vokabeln.csv'), // Backend root (lokal: backend/vokabeln.csv)
+      path.join(process.cwd(), 'vokabeln.csv'), // Railway: /app/vokabeln.csv (wenn Root Directory = backend)
+      path.join(process.cwd(), 'backend/vokabeln.csv'), // Fallback: /app/backend/vokabeln.csv
+      '/app/vokabeln.csv', // Docker/Railway absolute path (wenn Root Directory = backend)
       '/app/backend/vokabeln.csv', // Docker/Railway backend path
+      path.join(__dirname, '../../../vokabeln.csv'), // Alternative: von src/controllers aus
     ];
     
     let csvPath = null;

@@ -11,7 +11,8 @@ import gameRoutes from './routes/game.js';
 import progressRoutes from './routes/progress.js';
 import multiplayerRoutes from './routes/multiplayer.js';
 import { dbHelpers } from './config/instantdb.js';
-import { importVocabulariesFromFile } from './utils/csvParser.js';
+import { importVocabulariesFromFile, parseCSV } from './utils/csvParser.js';
+import { loadVocabFromGitHub } from './utils/loadVocabFromGitHub.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -30,14 +31,20 @@ async function checkAndImportVocabularies() {
       console.log('📚 Keine Vokabeln gefunden. Starte automatischen Import...');
       
       // Erweiterte Pfadsuche für verschiedene Deployment-Umgebungen
+      // WICHTIG: Railway setzt Root Directory auf 'backend', daher ist process.cwd() bereits /app
       const possiblePaths = [
-        path.join(__dirname, '../vokabeln.csv'), // Backend root (lokal)
-        path.join(process.cwd(), 'vokabeln.csv'), // Current working directory
-        path.join(process.cwd(), 'backend/vokabeln.csv'), // Railway/Root
+        path.join(__dirname, '../vokabeln.csv'), // Backend root (lokal: backend/vokabeln.csv)
+        path.join(process.cwd(), 'vokabeln.csv'), // Railway: /app/vokabeln.csv (wenn Root Directory = backend)
+        path.join(process.cwd(), 'backend/vokabeln.csv'), // Fallback: /app/backend/vokabeln.csv
         path.join(__dirname, '../../vokabeln.csv'), // Alternative Backend root
-        '/app/vokabeln.csv', // Docker/Railway absolute path
+        '/app/vokabeln.csv', // Docker/Railway absolute path (wenn Root Directory = backend)
         '/app/backend/vokabeln.csv', // Docker/Railway backend path
+        path.join(__dirname, '../../backend/vokabeln.csv'), // Alternative: von src aus
       ];
+      
+      // Debug: Zeige aktuelles Working Directory und __dirname
+      console.log(`🔍 Debug: process.cwd() = ${process.cwd()}`);
+      console.log(`🔍 Debug: __dirname = ${__dirname}`);
       
       let csvPath = null;
       for (const p of possiblePaths) {
@@ -70,8 +77,48 @@ async function checkAndImportVocabularies() {
         }
       } else {
         console.error('❌ CSV-Datei nicht gefunden in folgenden Pfaden:');
-        possiblePaths.forEach(p => console.error(`   - ${p}`));
-        console.error('⚠️ Bitte stelle sicher, dass vokabeln.csv im Backend-Verzeichnis liegt und im Git-Repository ist!');
+        possiblePaths.forEach(p => {
+          try {
+            const exists = fs.existsSync(p);
+            console.error(`   - ${p} ${exists ? '✅ EXISTIERT' : '❌ nicht gefunden'}`);
+          } catch (e) {
+            console.error(`   - ${p} ❌ Fehler beim Prüfen`);
+          }
+        });
+        console.error('⚠️ Lokale CSV-Datei nicht gefunden. Versuche Fallback: GitHub...');
+        
+        // Fallback: Lade von GitHub
+        try {
+          const csvContent = await loadVocabFromGitHub();
+          const vocabularies = await parseCSV(csvContent);
+          
+          let imported = 0;
+          let updated = 0;
+          let errors = 0;
+          
+          for (const vocab of vocabularies) {
+            try {
+              const existing = await dbHelpers.getVocabularyById(vocab.vocabId);
+              if (existing) {
+                await dbHelpers.updateVocabulary(vocab.vocabId, vocab);
+                updated++;
+              } else {
+                await dbHelpers.createVocabulary(vocab);
+                imported++;
+              }
+            } catch (error) {
+              console.error(`Error importing vocab ${vocab.vocabId}:`, error);
+              errors++;
+            }
+          }
+          
+          console.log(`✅ GitHub-Import abgeschlossen: ${imported} importiert, ${updated} aktualisiert, ${errors} Fehler`);
+        } catch (githubError) {
+          console.error('❌ GitHub-Fallback fehlgeschlagen:', githubError);
+          console.error('⚠️ Bitte stelle sicher, dass vokabeln.csv im Backend-Verzeichnis liegt und im Git-Repository ist!');
+          console.error('💡 Tipp: Prüfe Railway Settings → Root Directory sollte "backend" sein');
+          console.error('💡 Tipp: Prüfe ob die CSV-Datei im Git-Repository ist: git ls-files | grep vokabeln.csv');
+        }
       }
     } else {
       console.log(`✅ ${existingVocabs.length} Vokabeln bereits in der Datenbank`);
