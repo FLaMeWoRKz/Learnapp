@@ -11,24 +11,41 @@ export default function Timer({ duration, onComplete, onTick, className = '' }: 
   const [remaining, setRemaining] = useState(duration);
 
   useEffect(() => {
-    if (remaining <= 0) {
+    // Reset timer when duration changes
+    setRemaining(duration);
+    
+    if (duration <= 0) {
       onComplete?.();
       return;
     }
 
-    const interval = setInterval(() => {
-      setRemaining((prev) => {
-        const newValue = prev - 1;
-        onTick?.(newValue);
-        if (newValue <= 0) {
-          onComplete?.();
-        }
-        return newValue;
-      });
-    }, 1000);
+    const startTime = Date.now();
+    let animationFrameId: number;
 
-    return () => clearInterval(interval);
-  }, [remaining, onComplete, onTick]);
+    const update = () => {
+      const now = Date.now();
+      const elapsed = (now - startTime) / 1000;
+      const newRemaining = Math.max(0, duration - elapsed);
+
+      setRemaining(newRemaining);
+      onTick?.(newRemaining);
+
+      if (newRemaining <= 0) {
+        onComplete?.();
+        return;
+      }
+
+      animationFrameId = requestAnimationFrame(update);
+    };
+
+    animationFrameId = requestAnimationFrame(update);
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [duration, onComplete, onTick]);
 
   const percentage = (remaining / duration) * 100;
   const color = remaining <= 5 ? 'bg-red-500' : remaining <= 10 ? 'bg-yellow-500' : 'bg-primary-500';
@@ -40,13 +57,16 @@ export default function Timer({ duration, onComplete, onTick, className = '' }: 
           Verbleibende Zeit
         </span>
         <span className="text-lg font-bold text-gray-900 dark:text-white">
-          {remaining}s
+          {Math.ceil(remaining)}s
         </span>
       </div>
-      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
         <div
-          className={`${color} h-2 rounded-full transition-all duration-1000`}
-          style={{ width: `${percentage}%` }}
+          className={`${color} h-3 rounded-full`}
+          style={{ 
+            width: `${percentage}%`,
+            transition: 'none' // No transition for smooth animation
+          }}
         />
       </div>
     </div>

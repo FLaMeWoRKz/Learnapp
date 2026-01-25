@@ -158,20 +158,47 @@ export default function FreePractice() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             {options.map((opt, i) => {
-              let variant: 'primary' | 'secondary' | 'success' | 'danger' = 'secondary';
-              if (selectedAnswer === opt) variant = opt === currentVocab.english ? 'success' : 'danger';
+              const isSelected = selectedAnswer === opt;
+              const isCorrect = opt === currentVocab.english;
+              
+              // Color mapping for Kahoot-like appearance
+              const colors = [
+                { bg: 'bg-blue-500 hover:bg-blue-600', selected: 'bg-blue-700' },
+                { bg: 'bg-red-500 hover:bg-red-600', selected: 'bg-red-700' },
+                { bg: 'bg-yellow-500 hover:bg-yellow-600', selected: 'bg-yellow-700' },
+                { bg: 'bg-green-500 hover:bg-green-600', selected: 'bg-green-700' }
+              ];
+              const colorScheme = colors[i % 4];
+
               return (
-                <Button
+                <button
                   key={i}
-                  variant={variant}
-                  size="lg"
                   onClick={() => !selectedAnswer && handleAnswer(opt)}
                   disabled={!!selectedAnswer}
+                  className={`
+                    ${colorScheme.bg} dark:${colorScheme.selected}
+                    text-white font-bold text-xl py-8 px-6 rounded-2xl
+                    transition-all duration-200 transform relative
+                    ${!selectedAnswer ? 'hover:scale-105 active:scale-95 cursor-pointer' : 'cursor-not-allowed opacity-80'}
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    shadow-lg hover:shadow-xl
+                    ${isSelected 
+                      ? isCorrect 
+                        ? 'ring-4 ring-green-400 ring-offset-2' 
+                        : 'ring-4 ring-red-400 ring-offset-2'
+                      : ''
+                    }
+                  `}
                 >
                   {opt}
-                </Button>
+                  {isSelected && (
+                    <span className="absolute top-2 right-2 text-2xl">
+                      {isCorrect ? '✓' : '✗'}
+                    </span>
+                  )}
+                </button>
               );
             })}
           </div>

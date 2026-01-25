@@ -190,6 +190,7 @@ export const multiplayerAPI = {
     selectedPacks: number[];
     timerEnabled?: boolean;
     timerDuration?: number;
+    botCount?: number;
   }): Promise<{ roomId: string; code: string; room: GameRoom }> => {
     const response = await api.post('/multiplayer/create', { settings });
     return response.data;

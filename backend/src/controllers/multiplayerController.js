@@ -29,7 +29,16 @@ export function setupGameRoomHandlers(socket, io) {
       room.players = [];
     }
     
-    room.players.push(player);
+    // Check if player already exists
+    const existingPlayerIndex = room.players.findIndex(p => p.userId === userId);
+    if (existingPlayerIndex >= 0) {
+      // Update existing player
+      room.players[existingPlayerIndex] = { ...room.players[existingPlayerIndex], socketId: socket.id };
+    } else {
+      // Add new player
+      room.players.push(player);
+    }
+    
     await dbHelpers.updateGameRoom(room.id, room);
     activeRooms.set(roomCode, room);
 
@@ -125,10 +134,12 @@ export function setupGameRoomHandlers(socket, io) {
     const isCorrect = vocabulary.english.toLowerCase().trim() === answer.toLowerCase().trim();
     
     if (isCorrect) {
-      let points = 100; // Base points
-      if (timeSpent < 5) {
-        points += 50; // Time bonus
-      }
+      let points = 500; // Base points
+      // Speed bonus: up to 500 additional points for instant answers
+      // Bonus decreases linearly: 500 points at 0s, 0 points at 20s
+      const maxTime = 20; // Maximum time for full bonus
+      const speedBonus = Math.max(0, 500 * (1 - timeSpent / maxTime));
+      points += Math.round(speedBonus);
       player.score += points;
     }
 
@@ -139,11 +150,13 @@ export function setupGameRoomHandlers(socket, io) {
     await dbHelpers.updateGameRoom(room.id, room);
     activeRooms.set(roomCode, room);
 
-    // Check if all players answered
+    // Check if all players answered (but wait at least 2 seconds after question start)
     const activePlayers = room.players.filter(p => !p.isSpectator);
     const allAnswered = activePlayers.every(p => p.answered);
+    const timeSinceQuestionStart = Math.floor((Date.now() - (room.currentQuestion?.startTime || Date.now())) / 1000);
+    const minWaitTime = 2; // Minimum 2 seconds before proceeding
 
-    if (allAnswered) {
+    if (allAnswered && timeSinceQuestionStart >= minWaitTime) {
       // Emit round result
       io.to(roomCode).emit('round-result', {
         correctAnswer: vocabulary.english,
@@ -267,6 +280,76 @@ async function startNextRound(io, roomCode, room) {
     question: room.currentQuestion,
     timer: room.settings.timerEnabled ? room.settings.timerDuration : null
   });
+
+  // Auto-answer for bots
+  const bots = room.players.filter(p => p.isBot);
+  bots.forEach(bot => {
+    // Random delay between 3-8 seconds (give human players more time)
+    const delay = Math.random() * 5000 + 3000;
+    setTimeout(async () => {
+      // 75% chance to answer correctly
+      const isCorrect = Math.random() < 0.75;
+      let answer;
+      if (isCorrect) {
+        answer = vocabulary.english;
+      } else {
+        // Pick a random wrong option
+        const wrongOptions = options.filter(opt => opt !== vocabulary.english);
+        answer = wrongOptions[Math.floor(Math.random() * wrongOptions.length)];
+      }
+      
+      const timeSpent = Math.floor(delay / 1000);
+      
+      // Process bot answer
+      const isAnswerCorrect = answer.toLowerCase().trim() === vocabulary.english.toLowerCase().trim();
+      
+      if (isAnswerCorrect) {
+        let points = 500; // Base points
+        // Speed bonus: up to 500 additional points for instant answers
+        const maxTime = 20;
+        const speedBonus = Math.max(0, 500 * (1 - timeSpent / maxTime));
+        points += Math.round(speedBonus);
+        bot.score += points;
+      }
+      
+      bot.answered = true;
+      bot.answer = answer;
+      bot.isCorrect = isAnswerCorrect;
+      
+      await dbHelpers.updateGameRoom(room.id, room);
+      activeRooms.set(roomCode, room);
+      
+      // Check if all players answered (but wait at least 2 seconds after question start)
+      const activePlayers = room.players.filter(p => !p.isSpectator);
+      const allAnswered = activePlayers.every(p => p.answered);
+      const timeSinceQuestionStart = Math.floor((Date.now() - (room.currentQuestion?.startTime || Date.now())) / 1000);
+      const minWaitTime = 2; // Minimum 2 seconds before proceeding
+      
+      if (allAnswered && timeSinceQuestionStart >= minWaitTime) {
+        // Emit round result
+        io.to(roomCode).emit('round-result', {
+          correctAnswer: vocabulary.english,
+          players: room.players.map(p => ({
+            userId: p.userId,
+            username: p.username,
+            score: p.score,
+            isCorrect: p.isCorrect
+          }))
+        });
+        
+        // Wait 3 seconds, then next round or finish
+        setTimeout(async () => {
+          const updatedRoom = activeRooms.get(roomCode) || await dbHelpers.getGameRoomByCode(roomCode);
+          if (updatedRoom && updatedRoom.currentRound < updatedRoom.settings.rounds - 1) {
+            updatedRoom.currentRound++;
+            await startNextRound(io, roomCode, updatedRoom);
+          } else if (updatedRoom) {
+            await finishGame(io, roomCode, updatedRoom);
+          }
+        }, 3000);
+      }
+    }, delay);
+  });
 }
 
 async function finishGame(io, roomCode, room) {
@@ -302,21 +385,37 @@ export async function createRoom(req, res, next) {
     const code = generateRoomCode();
     const now = Date.now();
 
+    const players = [{
+      userId,
+      username: req.user.username,
+      score: 0,
+      isSpectator: false,
+      socketId: null
+    }];
+
+    // Add bots if requested
+    const botCount = settings.botCount || 0;
+    for (let i = 1; i <= botCount; i++) {
+      players.push({
+        userId: `bot-${code}-${i}`,
+        username: `Bot ${i}`,
+        score: 0,
+        isSpectator: false,
+        socketId: null,
+        isBot: true
+      });
+    }
+
     const roomData = {
       code,
       hostId: userId,
-      players: [{
-        userId,
-        username: req.user.username,
-        score: 0,
-        isSpectator: false,
-        socketId: null
-      }],
+      players,
       settings: {
         rounds: settings.rounds,
         selectedPacks: settings.selectedPacks,
         timerEnabled: settings.timerEnabled || false,
-        timerDuration: settings.timerDuration || 20
+        timerDuration: settings.timerDuration || 20,
+        botCount: botCount
       },
       currentRound: 0,
       currentQuestion: null,

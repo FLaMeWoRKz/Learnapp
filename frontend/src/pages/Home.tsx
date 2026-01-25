@@ -76,7 +76,7 @@ export default function Home() {
               </p>
               <Link to="/multiplayer">
                 <Button fullWidth variant="secondary">
-                  Raum erstellen
+                  Multiplayer starten
                 </Button>
               </Link>
             </Card>

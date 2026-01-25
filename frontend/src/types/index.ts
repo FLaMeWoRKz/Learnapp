@@ -69,12 +69,14 @@ export interface GameRoom {
     score: number;
     isSpectator: boolean;
     socketId?: string;
+    isBot?: boolean;
   }[];
   settings: {
     rounds: number;
     selectedPacks: number[];
     timerEnabled: boolean;
     timerDuration: number;
+    botCount?: number;
   };
   currentRound: number;
   currentQuestion: {
