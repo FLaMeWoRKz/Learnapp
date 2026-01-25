@@ -107,25 +107,31 @@ export async function getFlashcardStatus(req, res, next) {
     if (!flashcardProgress) {
       flashcardProgress = {
         userId,
-        boxes: { 1: [], 2: [], 3: [], 4: [], 5: [] },
+        boxes: JSON.stringify({ 1: [], 2: [], 3: [], 4: [], 5: [] }),
         jokerPoints: 0,
         updatedAt: Date.now()
       };
     }
 
-    const allBoxesEmpty = Object.values(flashcardProgress.boxes || {}).every(box => !box || box.length === 0);
+    // Parse boxes if stored as string
+    const boxes = typeof flashcardProgress.boxes === 'string' 
+      ? JSON.parse(flashcardProgress.boxes) 
+      : (flashcardProgress.boxes || {});
+
+    const allBoxesEmpty = Object.values(boxes).every(box => !box || box.length === 0);
     if (allBoxesEmpty) {
       // Lade alle Vokabeln (alle Level) in Box 1
       const allVocabs = await dbHelpers.getVocabularies({});
       if (allVocabs.length > 0) {
         const vocabIds = allVocabs.map(v => v.vocabId);
-        flashcardProgress.boxes = {
+        const newBoxes = {
           1: vocabIds,
           2: [],
           3: [],
           4: [],
           5: []
         };
+        flashcardProgress.boxes = JSON.stringify(newBoxes);
         flashcardProgress.updatedAt = Date.now();
         await dbHelpers.updateFlashcardProgress(flashcardProgress);
       }
@@ -133,7 +139,6 @@ export async function getFlashcardStatus(req, res, next) {
       // Prüfe, ob alle Vokabeln in den Boxen sind, und füge fehlende zu Box 1 hinzu
       const allVocabs = await dbHelpers.getVocabularies({});
       const allVocabIds = new Set(allVocabs.map(v => v.vocabId));
-      const boxes = flashcardProgress.boxes || {};
       const existingVocabIds = new Set();
       for (let b = 1; b <= 5; b++) {
         const boxIds = boxes[b] || [];
@@ -152,7 +157,7 @@ export async function getFlashcardStatus(req, res, next) {
       if (missingVocabIds.length > 0) {
         if (!boxes[1]) boxes[1] = [];
         boxes[1] = [...boxes[1], ...missingVocabIds];
-        flashcardProgress.boxes = boxes;
+        flashcardProgress.boxes = JSON.stringify(boxes);
         flashcardProgress.updatedAt = Date.now();
         await dbHelpers.updateFlashcardProgress(flashcardProgress);
       }
@@ -171,7 +176,6 @@ export async function getFlashcardStatus(req, res, next) {
     for (const lvl of levels) {
       levelBoxCounts[lvl] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     }
-    const boxes = flashcardProgress.boxes || {};
     const vocabLevels = {};
     for (let b = 1; b <= 5; b++) {
       const ids = boxes[b] || [];
@@ -183,7 +187,10 @@ export async function getFlashcardStatus(req, res, next) {
     }
 
     res.json({
-      ...flashcardProgress,
+      userId: flashcardProgress.userId,
+      boxes, // Send parsed boxes object
+      jokerPoints: flashcardProgress.jokerPoints,
+      updatedAt: flashcardProgress.updatedAt,
       levelCounts: levels.map(l => ({ level: l, count: levelCounts[l] })),
       levelBoxCounts,
       vocabLevels
@@ -204,7 +211,7 @@ export async function updateFlashcardProgress(req, res, next) {
 
     const flashcardProgress = {
       userId,
-      boxes,
+      boxes: JSON.stringify(boxes),
       jokerPoints: jokerPoints || 0,
       updatedAt: Date.now()
     };

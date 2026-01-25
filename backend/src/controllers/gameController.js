@@ -15,7 +15,9 @@ export async function startGame(req, res, next) {
       const existingSession = await dbHelpers.getUserGameSession(userId, mode, level);
       if (existingSession) {
         // Lade die Vokabeln für die Session
-        const questions = existingSession.questions || [];
+        const questions = typeof existingSession.questions === 'string' 
+          ? JSON.parse(existingSession.questions) 
+          : (existingSession.questions || []);
         const questionVocabs = await Promise.all(
           questions.map(q => dbHelpers.getVocabularyById(q.vocabId))
         );
@@ -43,7 +45,10 @@ export async function startGame(req, res, next) {
       // Get vocabularies from flashcard boxes
       const flashcardProgress = await dbHelpers.getFlashcardProgress(userId);
       if (flashcardProgress) {
-        const allVocabIds = Object.values(flashcardProgress.boxes || {}).flat();
+        const boxes = typeof flashcardProgress.boxes === 'string' 
+          ? JSON.parse(flashcardProgress.boxes) 
+          : (flashcardProgress.boxes || {});
+        const allVocabIds = Object.values(boxes).flat();
         // Fetch vocabularies by IDs (simplified - in production, use proper query)
         vocabularies = await dbHelpers.getVocabularies({});
         vocabularies = vocabularies.filter(v => allVocabIds.includes(v.vocabId));
@@ -67,12 +72,12 @@ export async function startGame(req, res, next) {
       mode,
       level: level || null,
       packId: packId || null,
-      questions: selectedVocabs.map(v => ({
+      questions: JSON.stringify(selectedVocabs.map(v => ({
         vocabId: v.vocabId,
         answered: false,
         correct: false,
         timeSpent: 0
-      })),
+      }))),
       score: 0,
       completed: false,
       createdAt: Date.now()
@@ -115,6 +120,11 @@ export async function submitAnswer(req, res, next) {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
+    // Parse questions if stored as string
+    const questions = typeof session.questions === 'string' 
+      ? JSON.parse(session.questions) 
+      : (session.questions || []);
+
     // Get vocabulary
     const vocabulary = await dbHelpers.getVocabularyById(vocabId);
     if (!vocabulary) {
@@ -125,11 +135,11 @@ export async function submitAnswer(req, res, next) {
     const isCorrect = vocabulary.english.toLowerCase().trim() === answer.toLowerCase().trim();
     
     // Update question in session
-    const questionIndex = session.questions.findIndex(q => q.vocabId === vocabId);
+    const questionIndex = questions.findIndex(q => q.vocabId === vocabId);
     if (questionIndex !== -1) {
-      session.questions[questionIndex].answered = true;
-      session.questions[questionIndex].correct = isCorrect;
-      session.questions[questionIndex].timeSpent = timeSpent || 0;
+      questions[questionIndex].answered = true;
+      questions[questionIndex].correct = isCorrect;
+      questions[questionIndex].timeSpent = timeSpent || 0;
       
       if (isCorrect) {
         session.score += 100; // Base points
@@ -139,10 +149,8 @@ export async function submitAnswer(req, res, next) {
       }
     }
 
-    // Update user progress
-    await updateUserProgress(userId, vocabId, isCorrect, vocabulary.level);
-
-    // Update session
+    // Update session with stringified questions
+    session.questions = JSON.stringify(questions);
     await dbHelpers.updateGameSession(sessionId, session);
 
     res.json({
