@@ -1,4 +1,5 @@
 import { init, id } from '@instantdb/admin';
+import { i } from '@instantdb/core';
 import { localDbHelpers } from './localStorage.js';
 
 // Storage mode: 'local' for testing, 'instantdb' for production
@@ -8,6 +9,94 @@ const STORAGE_MODE = process.env.STORAGE_MODE || (process.env.INSTANTDB_APP_ID ?
 // In production, these should come from environment variables
 const APP_ID = process.env.INSTANTDB_APP_ID || '';
 const ADMIN_TOKEN = process.env.INSTANTDB_ADMIN_TOKEN || '';
+
+// Define schema inline for InstantDB Admin API
+// This schema matches the one in instant.schema.ts
+const schema = i.schema({
+  entities: {
+    "$files": i.entity({
+      "path": i.string().unique().indexed(),
+      "url": i.string().optional(),
+    }),
+    "$users": i.entity({
+      "email": i.string().unique().indexed().optional(),
+      "imageURL": i.string().optional(),
+      "type": i.string().optional(),
+    }),
+    "flashcardProgress": i.entity({
+      "boxes": i.string(),
+      "jokerPoints": i.number(),
+      "updatedAt": i.number(),
+      "userId": i.string().indexed(),
+    }),
+    "gameRooms": i.entity({
+      "code": i.string().unique().indexed(),
+      "createdAt": i.number(),
+      "currentQuestion": i.string().optional(),
+      "currentRound": i.number(),
+      "hostId": i.string().indexed(),
+      "players": i.string(),
+      "settings": i.string(),
+      "status": i.string(),
+      "updatedAt": i.number(),
+    }),
+    "gameSessions": i.entity({
+      "completed": i.boolean(),
+      "createdAt": i.number(),
+      "level": i.number(),
+      "mode": i.string(),
+      "packId": i.number(),
+      "questions": i.string(),
+      "score": i.number(),
+      "userId": i.string().indexed(),
+    }),
+    "userProgress": i.entity({
+      "correctCount": i.number(),
+      "createdAt": i.number(),
+      "currentBox": i.number(),
+      "lastReviewed": i.number().optional(),
+      "learned": i.boolean(),
+      "level": i.number(),
+      "packCompleted": i.boolean(),
+      "updatedAt": i.number(),
+      "userId": i.string().indexed(),
+      "vocabId": i.string().indexed(),
+      "wrongCount": i.number(),
+    }),
+    "users": i.entity({
+      "createdAt": i.number(),
+      "email": i.string().unique().indexed(),
+      "passwordHash": i.string(),
+      "stats": i.string(),
+      "updatedAt": i.number(),
+      "username": i.string().unique().indexed(),
+    }),
+    "vocabularies": i.entity({
+      "cefr": i.string().indexed(),
+      "createdAt": i.number(),
+      "english": i.string(),
+      "german": i.string(),
+      "level": i.number().indexed(),
+      "vocabId": i.string().indexed(),
+    }),
+  },
+  links: {
+    "$usersLinkedPrimaryUser": {
+      "forward": {
+        "on": "$users",
+        "has": "one",
+        "label": "linkedPrimaryUser",
+        "onDelete": "cascade"
+      },
+      "reverse": {
+        "on": "$users",
+        "has": "many",
+        "label": "linkedGuestUsers"
+      }
+    }
+  },
+  rooms: {}
+});
 
 // Initialize InstantDB (only if not using local storage)
 let db = null;
@@ -20,12 +109,18 @@ if (STORAGE_MODE === 'instantdb') {
     try {
       db = init({
         appId: APP_ID,
-        adminToken: ADMIN_TOKEN
+        adminToken: ADMIN_TOKEN,
+        schema: schema  // Pass schema to enable db.tx
       });
       console.log('✅ Using InstantDB for storage');
       console.log(`📡 App ID: ${APP_ID.substring(0, 8)}...`);
+      console.log(`🔍 db.tx available: ${db && db.tx ? 'yes' : 'no'}`);
+      if (db && db.tx) {
+        console.log(`🔍 db.tx.users available: ${db.tx.users ? 'yes' : 'no'}`);
+      }
     } catch (error) {
       console.error('❌ Failed to initialize InstantDB:', error.message);
+      console.error('Stack:', error.stack);
       console.warn('⚠️  Falling back to local storage.');
       db = null;
     }
