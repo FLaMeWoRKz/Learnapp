@@ -1,5 +1,6 @@
 import { init, id } from '@instantdb/admin';
-import { i } from '@instantdb/core';
+import pkg from '@instantdb/core';
+const { i } = pkg;
 import { localDbHelpers } from './localStorage.js';
 
 // Storage mode: 'local' for testing, 'instantdb' for production
