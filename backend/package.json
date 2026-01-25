@@ -1,0 +1,36 @@
+{
+  "name": "vocabmaster-backend",
+  "version": "1.0.0",
+  "description": "VocabMaster Backend - Multiplayer Vokabeltrainer",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup-env.js",
+    "dev": "npm run setup && node --watch src/server.js",
+    "dev:local": "npm run setup && node --watch src/server.js",
+    "start": "npm run setup && node src/server.js",
+    "import-vocab": "node src/utils/csvParser.js",
+    "test": "node scripts/test-local.js",
+    "test:local": "node scripts/test-local.js"
+  },
+  "keywords": ["vocabulary", "trainer", "multiplayer"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.6.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "papaparse": "^5.4.1",
+    "@instantdb/admin": "^0.9.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vocabmaster-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - FRONTEND_URL=http://localhost:80
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - JWT_EXPIRES_IN=24h
+      - INSTANTDB_APP_ID=${INSTANTDB_APP_ID}
+      - INSTANTDB_ADMIN_TOKEN=${INSTANTDB_ADMIN_TOKEN}
+    volumes:
+      - ./backend/src:/app/src
+    restart: unless-stopped
+    networks:
+      - vocabmaster-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vocabmaster-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - vocabmaster-network
+
+networks:
+  vocabmaster-network:
+    driver: bridge
