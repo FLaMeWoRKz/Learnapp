@@ -1,12 +1,14 @@
 /**
- * E-Mail-Service: kapselt Versand über SMTP (Nodemailer).
- * Konfiguration über Umgebungsvariablen: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM, APP_BASE_URL.
+ * E-Mail-Service: Resend-API (HTTPS, funktioniert auf Railway) oder SMTP (Nodemailer).
+ * Resend: RESEND_API_KEY, RESEND_FROM (z. B. "VocabMaster <onboarding@resend.dev>").
+ * SMTP: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM, APP_BASE_URL.
  */
 
 import nodemailer from 'nodemailer';
 
 const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
 const MAIL_FROM = process.env.MAIL_FROM || process.env.SMTP_USER || 'noreply@vocabmaster.local';
+const RESEND_FROM = process.env.RESEND_FROM || 'VocabMaster <onboarding@resend.dev>';
 
 let transporter = null;
 
@@ -16,10 +18,7 @@ function getTransporter() {
   const port = parseInt(process.env.SMTP_PORT || '587', 10);
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  if (!host || !user || !pass) {
-    console.warn('⚠️ E-Mail: SMTP nicht konfiguriert (SMTP_HOST, SMTP_USER, SMTP_PASS). E-Mails werden nur geloggt.');
-    return null;
-  }
+  if (!host || !user || !pass) return null;
   transporter = nodemailer.createTransport({
     host,
     port,
@@ -29,7 +28,42 @@ function getTransporter() {
   return transporter;
 }
 
+/** Versand über Resend-API (HTTPS, wird von Railway nicht blockiert). */
+async function sendViaResend(options) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) throw new Error('RESEND_API_KEY nicht gesetzt');
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: [options.to],
+      subject: options.subject,
+      html: options.html,
+      text: options.text
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const msg = data.message || data.error || res.statusText;
+    throw new Error(`Resend: ${msg}`);
+  }
+  console.log('[E-Mail gesendet via Resend]', { to: options.to, subject: options.subject });
+}
+
 async function sendMail(options) {
+  if (process.env.RESEND_API_KEY) {
+    try {
+      await sendViaResend(options);
+      return;
+    } catch (err) {
+      console.error('E-Mail senden fehlgeschlagen (Resend):', err.message);
+      throw err;
+    }
+  }
   const transport = getTransporter();
   const mailOptions = {
     from: MAIL_FROM,
@@ -41,13 +75,13 @@ async function sendMail(options) {
   if (transport) {
     try {
       await transport.sendMail(mailOptions);
-      console.log('[E-Mail gesendet]', { to: options.to, subject: options.subject });
+      console.log('[E-Mail gesendet via SMTP]', { to: options.to, subject: options.subject });
     } catch (err) {
-      console.error('E-Mail senden fehlgeschlagen:', err.message, err.code || '');
+      console.error('E-Mail senden fehlgeschlagen (SMTP):', err.message, err.code || '');
       throw err;
     }
   } else {
-    console.error('[E-Mail NICHT gesendet] SMTP nicht konfiguriert (SMTP_HOST, SMTP_USER, SMTP_PASS prüfen). Empfänger:', options.to, 'Betreff:', options.subject);
+    console.error('[E-Mail NICHT gesendet] Weder RESEND_API_KEY noch SMTP konfiguriert. Empfänger:', options.to);
     throw new Error('SMTP_NOT_CONFIGURED');
   }
 }

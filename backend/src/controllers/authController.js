@@ -6,13 +6,24 @@ import * as emailService from '../services/emailService.js';
 
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || '';
 
-/** Prüft, ob SMTP-Umgebungsvariablen gesetzt sind (für Problemdiagnose). Keine sensiblen Werte zurückgeben. */
+/** Prüft, ob E-Mail-Versand konfiguriert ist: Resend (bevorzugt) oder SMTP. Keine sensiblen Werte. */
 export function getSmtpStatus(req, res) {
+  const resendKey = process.env.RESEND_API_KEY;
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
+  const resendConfigured = !!resendKey;
   const smtpConfigured = !!(host && user && pass);
-  res.json({ smtpConfigured, hasHost: !!host, hasUser: !!user, hasPass: !!pass });
+  const emailConfigured = resendConfigured || smtpConfigured;
+  res.json({
+    emailConfigured,
+    provider: resendConfigured ? 'resend' : (smtpConfigured ? 'smtp' : 'none'),
+    resendConfigured,
+    smtpConfigured,
+    hasHost: !!host,
+    hasUser: !!user,
+    hasPass: !!pass
+  });
 }
 
 function authError(res, statusCode = 500) {
