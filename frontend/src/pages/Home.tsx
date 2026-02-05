@@ -21,6 +21,11 @@ export default function Home() {
                       {user?.username}
                     </Button>
                   </Link>
+                  <Link to="/einstellungen">
+                    <Button variant="secondary" size="sm">
+                      Einstellungen
+                    </Button>
+                  </Link>
                   <Link to="/singleplayer">
                     <Button size="sm">Lernen</Button>
                   </Link>
@@ -54,7 +59,7 @@ export default function Home() {
         </div>
 
         {isAuthenticated ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card>
               <h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
                 Singleplayer
@@ -77,6 +82,20 @@ export default function Home() {
               <Link to="/multiplayer">
                 <Button fullWidth variant="secondary">
                   Multiplayer starten
+                </Button>
+              </Link>
+            </Card>
+
+            <Card>
+              <h3 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
+                Meine Vokabeln
+              </h3>
+              <p className="text-gray-600 dark:text-gray-300 mb-6">
+                Erstelle eigene Level und Vokabeln. Mit Audio-Abspielen!
+              </p>
+              <Link to="/custom-vocab">
+                <Button fullWidth variant="secondary">
+                  Vokabeln verwalten
                 </Button>
               </Link>
             </Card>

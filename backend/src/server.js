@@ -10,7 +10,9 @@ import { getLevelCounts } from './controllers/vocabController.js';
 import gameRoutes from './routes/game.js';
 import progressRoutes from './routes/progress.js';
 import multiplayerRoutes from './routes/multiplayer.js';
+import customVocabRoutes from './routes/customVocab.js';
 import { dbHelpers } from './config/instantdb.js';
+import { optionalAuth } from './middleware/auth.js';
 import { importVocabulariesFromFile, parseCSV } from './utils/csvParser.js';
 import { loadVocabFromGitHub } from './utils/loadVocabFromGitHub.js';
 import fs from 'fs';
@@ -190,13 +192,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes – level-counts explizit vor dem Vocab-Router (sonst fängt /:id "level-counts" ab)
-app.get('/api/vocab/level-counts', getLevelCounts);
+// Routes – level-counts mit optionaler Auth (für Custom Packs)
+app.get('/api/vocab/level-counts', optionalAuth, getLevelCounts);
 app.use('/api/auth', authRoutes);
 app.use('/api/vocab', vocabRoutes);
 app.use('/api/game', gameRoutes);
 app.use('/api/progress', progressRoutes);
 app.use('/api/multiplayer', multiplayerRoutes);
+app.use('/api/custom-vocab', customVocabRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

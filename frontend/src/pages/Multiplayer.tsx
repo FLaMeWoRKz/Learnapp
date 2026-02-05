@@ -21,7 +21,8 @@ export default function Multiplayer() {
   // Settings state
   const [rounds, setRounds] = useState(10);
   const [levelCounts, setLevelCounts] = useState<LevelCount[]>([]);
-  const [selectedLevels, setSelectedLevels] = useState<number[]>([1]);
+  const [selectedLevels, setSelectedLevels] = useState<number[]>([]);
+  const [selectedCustomPacks, setSelectedCustomPacks] = useState<string[]>([]);
   const [levelSelectionExpanded, setLevelSelectionExpanded] = useState(true);
   const [timerEnabled, setTimerEnabled] = useState(true);
   const [timerDuration, setTimerDuration] = useState(20);
@@ -99,17 +100,24 @@ export default function Multiplayer() {
   const toggleLevel = (level: number) => {
     setSelectedLevels((prev) => {
       const next = prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level].sort((a, b) => a - b);
-      return next.length > 0 ? next : [level];
+      return (next.length > 0 || selectedCustomPacks.length > 0) ? next : [level];
     });
   };
 
+  const toggleCustomPack = (packId: string) => {
+    setSelectedCustomPacks((prev) =>
+      prev.includes(packId) ? prev.filter((p) => p !== packId) : [...prev, packId]
+    );
+  };
+
   const handleCreateRoom = async () => {
-    if (!user || selectedLevels.length === 0) return;
+    if (!user || (selectedLevels.length === 0 && selectedCustomPacks.length === 0)) return;
 
     try {
       const settings = {
         rounds,
         selectedPacks: selectedLevels,
+        selectedCustomPacks: selectedCustomPacks,
         timerEnabled,
         timerDuration,
         botCount,
@@ -136,8 +144,10 @@ export default function Multiplayer() {
     }
   };
 
-  const countByLevel = Object.fromEntries(levelCounts.map((l) => [l.level, l.count]));
-  const totalSelected = selectedLevels.reduce((s, l) => s + (countByLevel[l] ?? 0), 0);
+  const countByLevel = Object.fromEntries(levelCounts.map((l) => [String(l.level), l.count]));
+  const totalSelected =
+    selectedLevels.reduce((s, l) => s + (countByLevel[String(l)] ?? 0), 0) +
+    selectedCustomPacks.reduce((s, p) => s + (countByLevel[p] ?? 0), 0);
 
   if (view === 'menu') {
     return (
@@ -250,11 +260,18 @@ export default function Multiplayer() {
               {levelSelectionExpanded && (
                 <>
                   <div className="flex flex-wrap gap-3">
-                    {levelCounts.map(({ level, count }) => {
-                      const checked = selectedLevels.includes(level);
+                    {levelCounts.map((item) => {
+                      const level = item.level;
+                      const count = item.count;
+                      const isCustom = item.custom === true;
+                      const checked = isCustom
+                        ? selectedCustomPacks.includes(String(level))
+                        : selectedLevels.includes(Number(level));
+                      const toggle = isCustom ? () => toggleCustomPack(String(level)) : () => toggleLevel(Number(level));
+                      const label = isCustom ? (item.name || `Pack ${level}`) : `Level ${level}`;
                       return (
                         <label
-                          key={level}
+                          key={String(level)}
                           className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
                             checked
                               ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500 text-primary-800 dark:text-primary-200'
@@ -264,11 +281,11 @@ export default function Multiplayer() {
                           <input
                             type="checkbox"
                             checked={checked}
-                            onChange={() => toggleLevel(level)}
+                            onChange={toggle}
                             className="rounded border-gray-300 dark:border-gray-600"
                           />
                           <span className="font-medium">
-                            Level {level} ({count})
+                            {label} ({count})
                           </span>
                         </label>
                       );
@@ -276,7 +293,7 @@ export default function Multiplayer() {
                   </div>
                   {levelCounts.length > 0 && (
                     <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                      {selectedLevels.length} Level ausgewählt · {totalSelected} Vokabeln gesamt
+                      {selectedLevels.length + selectedCustomPacks.length} ausgewählt · {totalSelected} Vokabeln gesamt
                     </p>
                   )}
                   {levelCounts.length === 0 && (
@@ -286,7 +303,7 @@ export default function Multiplayer() {
               )}
               {!levelSelectionExpanded && (
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {selectedLevels.length} Level ausgewählt · {totalSelected} Vokabeln gesamt
+                  {selectedLevels.length + selectedCustomPacks.length} ausgewählt · {totalSelected} Vokabeln gesamt
                 </p>
               )}
             </div>
@@ -342,7 +359,7 @@ export default function Multiplayer() {
 
             {/* Erstellen Button */}
             <div className="flex gap-4">
-              <Button fullWidth onClick={handleCreateRoom} disabled={selectedLevels.length === 0}>
+              <Button fullWidth onClick={handleCreateRoom} disabled={selectedLevels.length === 0 && selectedCustomPacks.length === 0}>
                 Raum erstellen
               </Button>
             </div>

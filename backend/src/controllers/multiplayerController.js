@@ -3,6 +3,8 @@ import { generateRoomCode, getRandomVocabularies, generateQuestionOptions } from
 
 // Store active rooms in memory (in production, use Redis or database)
 const activeRooms = new Map();
+// Verhindert doppelte Runden-Übergänge (z.B. wenn Host "Weiter" klickt während Auto-Advance läuft)
+const roundTransitionLocks = new Map();
 
 export function setupGameRoomHandlers(socket, io) {
   socket.on('join-room', async (data) => {
@@ -135,13 +137,21 @@ export function setupGameRoomHandlers(socket, io) {
 
       console.log('🎮 Game settings:', settings);
 
-      // Get vocabularies based on selected packs
+      // Get vocabularies based on selected packs (Level 1-15) und/oder custom packs
       const vocabularies = [];
-      for (const level of settings.selectedPacks) {
-        console.log('📚 Loading vocabularies for level:', level);
-        const vocabs = await dbHelpers.getVocabularies({ level });
-        console.log(`   Found ${vocabs.length} vocabularies for level ${level}`);
-        vocabularies.push(...vocabs);
+      if (settings.selectedPacks && settings.selectedPacks.length) {
+        for (const level of settings.selectedPacks) {
+          if (typeof level === 'number' && level >= 1 && level <= 99) {
+            const vocabs = await dbHelpers.getVocabularies({ level });
+            vocabularies.push(...vocabs);
+          }
+        }
+      }
+      if (settings.selectedCustomPacks && settings.selectedCustomPacks.length) {
+        for (const packId of settings.selectedCustomPacks) {
+          const vocabs = await dbHelpers.getVocabularies({ customPackId: packId, userId: room.hostId });
+          vocabularies.push(...vocabs);
+        }
       }
 
       if (vocabularies.length === 0) {
@@ -246,39 +256,84 @@ export function setupGameRoomHandlers(socket, io) {
       await dbHelpers.updateGameRoom(room.id, { players: room.players, updatedAt: Date.now() });
       activeRooms.set(roomCode, room);
 
-      // Check if all players answered (but wait at least 2 seconds after question start)
+      // Check if all players answered
       const activePlayers = players.filter(p => !p.isSpectator);
       const allAnswered = activePlayers.every(p => p.answered);
       const timeSinceQuestionStart = Math.floor((Date.now() - (room.currentQuestion?.startTime || Date.now())) / 1000);
-      const minWaitTime = 2; // Minimum 2 seconds before proceeding
+      const minWaitTime = activePlayers.length > 1 ? 2 : 0; // Solo: sofort weiter; Multiplayer: 2s warten
 
-      console.log(`   All answered: ${allAnswered}, Time since start: ${timeSinceQuestionStart}s`);
+      console.log(`   All answered: ${allAnswered}, Time since start: ${timeSinceQuestionStart}s, minWait: ${minWaitTime}s`);
 
       if (allAnswered && timeSinceQuestionStart >= minWaitTime) {
+        if (roundTransitionLocks.get(roomCode)) {
+          console.log('⏭️ Round transition already in progress, skipping duplicate');
+          return;
+        }
+        roundTransitionLocks.set(roomCode, true);
         console.log('🏁 All players answered, showing results...');
-        // Emit round result
-        io.to(roomCode).emit('round-result', {
+        
+        const settings = typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings;
+        const roundResultData = {
           correctAnswer: vocabulary.english,
+          round: room.currentRound + 1,
+          totalRounds: settings.rounds,
           players: players.map(p => ({
             userId: p.userId,
             username: p.username,
             score: p.score,
             isCorrect: p.isCorrect
           }))
-        });
+        };
+        
+        // Emit to room
+        io.to(roomCode).emit('round-result', roundResultData);
+        
+        // Also emit directly to the submitting socket as fallback
+        socket.emit('round-result', roundResultData);
+        
+        console.log(`📤 round-result emitted to room ${roomCode} and directly to socket ${socket.id} (Round ${roundResultData.round}/${roundResultData.totalRounds})`);
 
         // Wait 3 seconds, then next round or finish
         setTimeout(async () => {
           try {
-            const settings = typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings;
-            if (room.currentRound < settings.rounds - 1) {
-              room.currentRound++;
-              await startNextRound(io, roomCode, room);
+            roundTransitionLocks.delete(roomCode);
+            let currentRoom = activeRooms.get(roomCode);
+            if (!currentRoom) {
+              // Fallback: Load from DB if not in memory
+              currentRoom = await dbHelpers.getGameRoomByCode(roomCode);
+              if (currentRoom) {
+                // Restore selectedVocabularies if available (from start-game)
+                // Note: selectedVocabularies is only in memory, so we need to reload from DB
+                // For now, we'll try to continue with what we have
+                activeRooms.set(roomCode, currentRoom);
+                console.log(`📦 Room ${roomCode} restored from DB for round transition`);
+              } else {
+                console.error(`❌ Room ${roomCode} not found in DB during round transition`);
+                return;
+              }
+            }
+            const settings = typeof currentRoom.settings === 'string' ? JSON.parse(currentRoom.settings) : currentRoom.settings;
+            if (currentRoom.currentRound < settings.rounds - 1) {
+              currentRoom.currentRound++;
+              // CRITICAL: Ensure room is in activeRooms with selectedVocabularies before starting next round
+              // If we loaded from DB, we need to preserve selectedVocabularies from the original room
+              const originalRoom = activeRooms.get(roomCode);
+              if (originalRoom && originalRoom.selectedVocabularies) {
+                currentRoom.selectedVocabularies = originalRoom.selectedVocabularies;
+              }
+              activeRooms.set(roomCode, currentRoom);
+              await startNextRound(io, roomCode, currentRoom);
             } else {
-              await finishGame(io, roomCode, room);
+              await finishGame(io, roomCode, currentRoom);
             }
           } catch (error) {
+            roundTransitionLocks.delete(roomCode);
             console.error('🚨 Error in delayed round transition:', error);
+            console.error('Error stack:', error.stack);
+            io.to(roomCode).emit('error', { 
+              message: 'Fehler beim Übergang zur nächsten Runde',
+              details: error.message 
+            });
           }
         }, 3000);
       }
@@ -341,19 +396,38 @@ export function setupGameRoomHandlers(socket, io) {
   });
 
   socket.on('next-round', async (data) => {
+    console.log('⏭️ next-round event received:', data);
     const { roomCode, userId } = data;
     
     const room = activeRooms.get(roomCode);
-    if (!room || room.hostId !== userId) {
+    if (!room) {
+      console.log('❌ next-round: Room not found in activeRooms:', roomCode);
+      socket.emit('error', { message: 'Room not found' });
+      return;
+    }
+    if (room.hostId !== userId) {
+      console.log('❌ next-round: Not authorized. Host:', room.hostId, 'User:', userId);
       socket.emit('error', { message: 'Not authorized' });
       return;
     }
 
+    // Verhindere Doppel-Auslösung wenn Auto-Advance bereits läuft
+    if (roundTransitionLocks.get(roomCode)) {
+      console.log('⏭️ next-round ignoriert: Auto-Advance läuft bereits');
+      // Don't emit error, just acknowledge silently
+      return;
+    }
+
     const settings = typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings;
-    if (room.currentRound < settings.rounds - 1) {
-      room.currentRound++;
+    const currentRound = typeof room.currentRound === 'number' ? room.currentRound : parseInt(room.currentRound) || 0;
+    console.log(`⏭️ next-round: Current round ${currentRound}, total rounds: ${settings.rounds}`);
+    
+    if (currentRound < settings.rounds - 1) {
+      room.currentRound = currentRound + 1;
+      console.log(`⏭️ next-round: Advancing to round ${room.currentRound + 1}`);
       await startNextRound(io, roomCode, room);
     } else {
+      console.log('🏁 next-round: Game finished');
       await finishGame(io, roomCode, room);
     }
   });
@@ -363,9 +437,20 @@ async function startNextRound(io, roomCode, room) {
   try {
     console.log(`🎮 Starting round ${room.currentRound + 1} for room ${roomCode}`);
     
+    // Ensure room is in activeRooms and has selectedVocabularies
+    let activeRoom = activeRooms.get(roomCode);
+    if (!activeRoom || !activeRoom.selectedVocabularies) {
+      // Room not in memory or missing selectedVocabularies - this shouldn't happen during gameplay
+      console.error(`❌ Room ${roomCode} not in activeRooms or missing selectedVocabularies`);
+      io.to(roomCode).emit('error', { message: 'Spielzustand verloren. Bitte Raum neu erstellen.' });
+      return;
+    }
+    // Use the room from activeRooms to ensure we have selectedVocabularies
+    room = activeRoom;
+    
     const vocab = room.selectedVocabularies[room.currentRound];
     if (!vocab) {
-      console.error('❌ No vocabulary found for current round');
+      console.error('❌ No vocabulary found for current round:', room.currentRound, 'Total rounds:', room.selectedVocabularies?.length);
       io.to(roomCode).emit('error', { message: 'No vocabulary for this round' });
       return;
     }
@@ -380,12 +465,18 @@ async function startNextRound(io, roomCode, room) {
 
     console.log(`📖 Question word: ${vocabulary.german} → ${vocabulary.english}`);
 
-    // Get wrong options
-    const allVocabs = await dbHelpers.getVocabularies({ level: vocabulary.level });
-    const wrongOptions = getRandomVocabularies(
-      allVocabs.filter(v => v.vocabId !== vocabulary.vocabId),
-      3
-    ).map(v => v.english);
+    // Get wrong options (für Custom-Vokabeln: aus gleichem Pack; sonst: nach Level)
+    let allVocabs;
+    if (vocab.vocabId?.startsWith('custom-') && vocab.packId) {
+      allVocabs = await dbHelpers.getVocabularies({ customPackId: vocab.packId, userId: vocabulary.userId });
+    } else {
+      allVocabs = await dbHelpers.getVocabularies({ level: vocabulary.level });
+    }
+    const wrongCandidates = allVocabs.filter(v => v.vocabId !== vocabulary.vocabId);
+    let wrongOptions = getRandomVocabularies(wrongCandidates, 3).map(v => v.english);
+    if (wrongOptions.length < 3) {
+      wrongOptions = wrongOptions.concat(['Option A', 'Option B', 'Option C'].slice(0, 3 - wrongOptions.length));
+    }
 
     const options = generateQuestionOptions(vocabulary.english, wrongOptions);
     
@@ -418,15 +509,19 @@ async function startNextRound(io, roomCode, room) {
     const settings = typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings;
     
     console.log(`✅ Emitting question to room ${roomCode}`);
+    console.log(`   Round: ${room.currentRound + 1}/${settings.rounds}`);
+    console.log(`   Question: ${room.currentQuestion.question} → ${room.currentQuestion.correctAnswer}`);
     io.to(roomCode).emit('question', {
       round: room.currentRound + 1,
       totalRounds: settings.rounds,
       question: room.currentQuestion,
       timer: settings.timerEnabled ? settings.timerDuration : null
     });
+    console.log(`✅ Question event emitted successfully`);
 
     // Auto-answer for bots
     const bots = players.filter(p => p.isBot);
+    const roundWhenScheduled = room.currentRound; // Für Stale-Check
     if (bots.length > 0) {
       console.log(`🤖 ${bots.length} bot(s) will answer automatically`);
     }
@@ -435,6 +530,11 @@ async function startNextRound(io, roomCode, room) {
       const delay = Math.random() * 5000 + 3000;
       setTimeout(async () => {
         try {
+          const currentRoom = activeRooms.get(roomCode);
+          if (!currentRoom || currentRoom.currentRound !== roundWhenScheduled) {
+            console.log('🤖 Bot answer skipped: round already advanced');
+            return;
+          }
           // 75% chance to answer correctly
           const isCorrect = Math.random() < 0.75;
           let answer;
@@ -472,12 +572,19 @@ async function startNextRound(io, roomCode, room) {
           const activePlayers = players.filter(p => !p.isSpectator);
           const allAnswered = activePlayers.every(p => p.answered);
           const timeSinceQuestionStart = Math.floor((Date.now() - (room.currentQuestion?.startTime || Date.now())) / 1000);
-          const minWaitTime = 2; // Minimum 2 seconds before proceeding
+          const minWaitTime = activePlayers.length > 1 ? 2 : 0;
           
           if (allAnswered && timeSinceQuestionStart >= minWaitTime) {
-            // Emit round result
+            if (roundTransitionLocks.get(roomCode)) {
+              return;
+            }
+            roundTransitionLocks.set(roomCode, true);
+            // Emit round result with round info
+            const roomSettings = typeof room.settings === 'string' ? JSON.parse(room.settings) : room.settings;
             io.to(roomCode).emit('round-result', {
               correctAnswer: vocabulary.english,
+              round: room.currentRound + 1,
+              totalRounds: roomSettings.rounds,
               players: players.map(p => ({
                 userId: p.userId,
                 username: p.username,
@@ -489,6 +596,7 @@ async function startNextRound(io, roomCode, room) {
             // Wait 3 seconds, then next round or finish
             setTimeout(async () => {
               try {
+                roundTransitionLocks.delete(roomCode);
                 const updatedRoom = activeRooms.get(roomCode) || await dbHelpers.getGameRoomByCode(roomCode);
                 if (updatedRoom) {
                   const updatedSettings = typeof updatedRoom.settings === 'string' ? JSON.parse(updatedRoom.settings) : updatedRoom.settings;
@@ -500,6 +608,7 @@ async function startNextRound(io, roomCode, room) {
                   }
                 }
               } catch (error) {
+                roundTransitionLocks.delete(roomCode);
                 console.error('🚨 Error in bot answer delayed transition:', error);
               }
             }, 3000);
@@ -522,6 +631,7 @@ async function startNextRound(io, roomCode, room) {
 async function finishGame(io, roomCode, room) {
   try {
     console.log(`🏁 Finishing game for room ${roomCode}`);
+    roundTransitionLocks.delete(roomCode);
     
     room.status = 'finished';
     await dbHelpers.updateGameRoom(room.id, { 
@@ -616,7 +726,8 @@ export async function createRoom(req, res, next) {
       players: JSON.stringify(players), // Array als JSON String
       settings: JSON.stringify({
         rounds: settings.rounds,
-        selectedPacks: settings.selectedPacks,
+        selectedPacks: settings.selectedPacks || [],
+        selectedCustomPacks: settings.selectedCustomPacks || [],
         timerEnabled: settings.timerEnabled || false,
         timerDuration: settings.timerDuration || 20,
         botCount: botCount

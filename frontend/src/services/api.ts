@@ -94,11 +94,25 @@ export const authAPI = {
   logout: () => {
     localStorage.removeItem('token');
   },
+
+  updateProfile: async (data: { username?: string; email?: string }) => {
+    const response = await api.put('/auth/profile', data);
+    return response.data;
+  },
+
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    const response = await api.put('/auth/password', { currentPassword, newPassword });
+    return response.data;
+  },
 };
 
 // Vocabulary API
 export const vocabAPI = {
-  getVocabularies: async (filters?: { level?: number; levels?: number[]; cefr?: string }): Promise<{ count: number; vocabularies: Vocabulary[] }> => {
+  getVocabularies: async (filters?: { level?: number; levels?: number[]; cefr?: string; customPackId?: string }): Promise<{ count: number; vocabularies: Vocabulary[] }> => {
+    if (filters?.customPackId) {
+      const res = await api.get(`/custom-vocab/packs/${filters.customPackId}/vocabularies`);
+      return { count: res.data.vocabularies?.length || 0, vocabularies: res.data.vocabularies || [] };
+    }
     const params: Record<string, string | number> = {};
     if (filters?.level != null) params.level = filters.level;
     if (filters?.levels?.length) params.levels = filters.levels.join(',');
@@ -112,14 +126,51 @@ export const vocabAPI = {
     return response.data;
   },
 
-  getLevelCounts: async (): Promise<{ levels: { level: number; count: number }[] }> => {
+  getLevelCounts: async (): Promise<{ levels: { level: number | string; count: number; custom?: boolean; name?: string }[] }> => {
     const response = await api.get('/vocab/level-counts');
     return response.data;
   },
 
+
   importVocabularies: async (): Promise<{ message: string; imported: number; updated: number; total: number }> => {
     const response = await api.post('/vocab/import');
     return response.data;
+  },
+};
+
+// Custom Vocabulary API
+export const customVocabAPI = {
+  getPacks: async (): Promise<{ packs: { id: string; name: string; userId: string; createdAt: number }[] }> => {
+    const response = await api.get('/custom-vocab/packs');
+    return response.data;
+  },
+
+  createPack: async (name: string): Promise<{ id: string; name: string; userId: string; createdAt: number }> => {
+    const response = await api.post('/custom-vocab/packs', { name });
+    return response.data;
+  },
+
+  updatePack: async (packId: string, name: string): Promise<{ id: string; name: string }> => {
+    const response = await api.put(`/custom-vocab/packs/${packId}`, { name });
+    return response.data;
+  },
+
+  deletePack: async (packId: string): Promise<void> => {
+    await api.delete(`/custom-vocab/packs/${packId}`);
+  },
+
+  getVocabularies: async (packId: string): Promise<{ vocabularies: Vocabulary[] }> => {
+    const response = await api.get(`/custom-vocab/packs/${packId}/vocabularies`);
+    return response.data;
+  },
+
+  createVocabulary: async (packId: string, german: string, english: string): Promise<Vocabulary> => {
+    const response = await api.post(`/custom-vocab/packs/${packId}/vocabularies`, { german, english });
+    return response.data;
+  },
+
+  deleteVocabulary: async (vocabId: string): Promise<void> => {
+    await api.delete(`/custom-vocab/vocabularies/${vocabId}`);
   },
 };
 
@@ -158,7 +209,7 @@ export const progressAPI = {
 
 // Game API
 export const gameAPI = {
-  startGame: async (mode: 'level' | 'flashcard' | 'free', level?: number, packId?: number): Promise<{
+  startGame: async (mode: 'level' | 'flashcard' | 'free', level?: number, packId?: string | number): Promise<{
     sessionId: string;
     mode: string;
     questionCount: number;
@@ -188,6 +239,7 @@ export const multiplayerAPI = {
   createRoom: async (settings: {
     rounds: number;
     selectedPacks: number[];
+    selectedCustomPacks?: string[];
     timerEnabled?: boolean;
     timerDuration?: number;
     botCount?: number;

@@ -160,6 +160,9 @@ export const dbHelpers = {
   },
 
   async getVocabularies(filters = {}) {
+    if (filters.customPackId) {
+      return await localDbHelpers.getCustomVocabulariesByPack(filters.customPackId, filters.userId || '');
+    }
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.getVocabularies(filters);
     }
@@ -175,13 +178,18 @@ export const dbHelpers = {
   },
 
   async getVocabularyById(vocabId) {
+    if (vocabId && vocabId.startsWith('custom-')) {
+      return await localDbHelpers.getCustomVocabularyById(vocabId);
+    }
     if (STORAGE_MODE === 'local' || !db) {
       return await localDbHelpers.getVocabularyById(vocabId);
     }
     const result = await db.query({ 
       vocabularies: { $: { where: { vocabId } } } 
     });
-    return result?.vocabularies?.[0] || null;
+    const found = result?.vocabularies?.[0];
+    if (found) return found;
+    return await localDbHelpers.getCustomVocabularyById(vocabId);
   },
 
   async updateVocabulary(vocabId, vocabData) {
@@ -356,5 +364,34 @@ export const dbHelpers = {
       }
     });
     return result?.gameSessions?.[0] || null;
+  },
+
+  // Custom Packs & Vocabularies (nutzen localStorage-Dateien, funktioniert mit beiden Modi)
+  async createCustomPack(userId, name) {
+    return await localDbHelpers.createCustomPack(userId, name);
+  },
+  async getCustomPacks(userId) {
+    return await localDbHelpers.getCustomPacks(userId);
+  },
+  async getCustomPackById(packId, userId) {
+    return await localDbHelpers.getCustomPackById(packId, userId);
+  },
+  async updateCustomPack(packId, userId, name) {
+    return await localDbHelpers.updateCustomPack(packId, userId, name);
+  },
+  async deleteCustomPack(packId, userId) {
+    return await localDbHelpers.deleteCustomPack(packId, userId);
+  },
+  async createCustomVocabulary(packId, userId, german, english) {
+    return await localDbHelpers.createCustomVocabulary(packId, userId, german, english);
+  },
+  async getCustomVocabulariesByPack(packId, userId) {
+    return await localDbHelpers.getCustomVocabulariesByPack(packId, userId);
+  },
+  async getCustomVocabularyById(vocabId) {
+    return await localDbHelpers.getCustomVocabularyById(vocabId);
+  },
+  async deleteCustomVocabulary(vocabId, userId) {
+    return await localDbHelpers.deleteCustomVocabulary(vocabId, userId);
   }
 };

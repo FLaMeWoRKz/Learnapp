@@ -16,14 +16,17 @@ export default function Lobby({ room, roomCode, onStart, onLeave }: LobbyProps) 
   const { user } = useAuth();
   const socket = getSocket();
   const [showLeaveWarning, setShowLeaveWarning] = useState(false);
+  const [hasJoinedRoom, setHasJoinedRoom] = useState(false);
 
   useEffect(() => {
     if (socket && user) {
+      setHasJoinedRoom(false);
       const setupListeners = () => {
         socketEvents.joinRoom(socket, roomCode, user.id, user.username, false);
 
         socketEvents.onRoomUpdated(socket, (data) => {
           console.log('Lobby: Room updated', data);
+          setHasJoinedRoom(true); // Socket hat room-updated empfangen = wir sind im Raum
         });
 
         socketEvents.onError(socket, (error) => {
@@ -35,7 +38,7 @@ export default function Lobby({ room, roomCode, onStart, onLeave }: LobbyProps) 
       if (socket.connected) {
         setupListeners();
       } else {
-        socket.on('connect', () => {
+        socket.once('connect', () => {
           console.log('Lobby: Socket connected');
           setupListeners();
         });
@@ -144,7 +147,10 @@ export default function Lobby({ room, roomCode, onStart, onLeave }: LobbyProps) 
         <h4 className="text-lg font-semibold mb-3 text-gray-900 dark:text-white">Einstellungen</h4>
         <div className="space-y-2 text-gray-600 dark:text-gray-300">
           <p>Runden: {room.settings.rounds}</p>
-          <p>Packs: {room.settings.selectedPacks.join(', ')}</p>
+          <p>Packs: {[
+            ...(room.settings.selectedPacks || []).map((l: number) => `L${l}`),
+            ...((room.settings.selectedCustomPacks as string[]) || []).map(() => 'Custom')
+          ].join(', ') || '–'}</p>
           <p>Timer: {room.settings.timerEnabled ? `${room.settings.timerDuration}s` : 'Aus'}</p>
           {room.settings.botCount && room.settings.botCount > 0 && (
             <p>Bots: {room.settings.botCount}</p>
@@ -153,8 +159,14 @@ export default function Lobby({ room, roomCode, onStart, onLeave }: LobbyProps) 
       </div>
 
       {isHost && (
-        <Button fullWidth size="lg" onClick={handleStart}>
-          Spiel starten
+        <Button
+          fullWidth
+          size="lg"
+          onClick={handleStart}
+          disabled={!hasJoinedRoom}
+          title={!hasJoinedRoom ? 'Warte auf Verbindung zum Spielraum...' : undefined}
+        >
+          {hasJoinedRoom ? 'Spiel starten' : 'Verbinde...'}
         </Button>
       )}
 

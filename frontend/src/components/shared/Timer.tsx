@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface TimerProps {
   duration: number; // in seconds
@@ -9,13 +9,21 @@ interface TimerProps {
 
 export default function Timer({ duration, onComplete, onTick, className = '' }: TimerProps) {
   const [remaining, setRemaining] = useState(duration);
+  const onCompleteRef = useRef(onComplete);
+  const onTickRef = useRef(onTick);
+  const hasFiredRef = useRef(false);
+
+  // Keep refs up to date without triggering effect re-run
+  onCompleteRef.current = onComplete;
+  onTickRef.current = onTick;
 
   useEffect(() => {
-    // Reset timer when duration changes
+    // Reset state when duration or key changes (via parent remount)
+    hasFiredRef.current = false;
     setRemaining(duration);
     
     if (duration <= 0) {
-      onComplete?.();
+      onCompleteRef.current?.();
       return;
     }
 
@@ -28,10 +36,11 @@ export default function Timer({ duration, onComplete, onTick, className = '' }: 
       const newRemaining = Math.max(0, duration - elapsed);
 
       setRemaining(newRemaining);
-      onTick?.(newRemaining);
+      onTickRef.current?.(newRemaining);
 
-      if (newRemaining <= 0) {
-        onComplete?.();
+      if (newRemaining <= 0 && !hasFiredRef.current) {
+        hasFiredRef.current = true;
+        onCompleteRef.current?.();
         return;
       }
 
@@ -45,7 +54,7 @@ export default function Timer({ duration, onComplete, onTick, className = '' }: 
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [duration, onComplete, onTick]);
+  }, [duration]); // Nur duration - verhindert Doppeldurchlauf durch wechselnde Callback-Referenzen
 
   const percentage = (remaining / duration) * 100;
   const color = remaining <= 5 ? 'bg-red-500' : remaining <= 10 ? 'bg-yellow-500' : 'bg-primary-500';

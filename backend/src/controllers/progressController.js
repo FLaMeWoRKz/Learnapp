@@ -114,16 +114,28 @@ export async function getFlashcardStatus(req, res, next) {
     }
 
     // Parse boxes if stored as string
-    const boxes = typeof flashcardProgress.boxes === 'string' 
-      ? JSON.parse(flashcardProgress.boxes) 
+    let boxes = typeof flashcardProgress.boxes === 'string'
+      ? JSON.parse(flashcardProgress.boxes)
       : (flashcardProgress.boxes || {});
+
+    // Standard-Vokabeln und Custom-Packs laden
+    const allStandardVocabs = await dbHelpers.getVocabularies({});
+    const customPacks = await dbHelpers.getCustomPacks(userId);
+    const customVocabsByPack = {};
+    for (const pack of customPacks) {
+      customVocabsByPack[pack.id] = await dbHelpers.getVocabularies({ customPackId: pack.id, userId });
+    }
+    const allCustomVocabs = Object.values(customVocabsByPack).flat();
+
+    const allVocabIds = new Set([
+      ...allStandardVocabs.map(v => v.vocabId),
+      ...allCustomVocabs.map(v => v.vocabId)
+    ]);
 
     const allBoxesEmpty = Object.values(boxes).every(box => !box || box.length === 0);
     if (allBoxesEmpty) {
-      // Lade alle Vokabeln (alle Level) in Box 1
-      const allVocabs = await dbHelpers.getVocabularies({});
-      if (allVocabs.length > 0) {
-        const vocabIds = allVocabs.map(v => v.vocabId);
+      if (allVocabIds.size > 0) {
+        const vocabIds = Array.from(allVocabIds);
         const newBoxes = {
           1: vocabIds,
           2: [],
@@ -131,29 +143,17 @@ export async function getFlashcardStatus(req, res, next) {
           4: [],
           5: []
         };
+        boxes = newBoxes;
         flashcardProgress.boxes = JSON.stringify(newBoxes);
         flashcardProgress.updatedAt = Date.now();
         await dbHelpers.updateFlashcardProgress(flashcardProgress);
       }
     } else {
-      // Prüfe, ob alle Vokabeln in den Boxen sind, und füge fehlende zu Box 1 hinzu
-      const allVocabs = await dbHelpers.getVocabularies({});
-      const allVocabIds = new Set(allVocabs.map(v => v.vocabId));
       const existingVocabIds = new Set();
       for (let b = 1; b <= 5; b++) {
-        const boxIds = boxes[b] || [];
-        boxIds.forEach(id => existingVocabIds.add(id));
+        (boxes[b] || []).forEach(id => existingVocabIds.add(id));
       }
-      
-      // Finde fehlende Vokabeln
-      const missingVocabIds = [];
-      for (const vocabId of allVocabIds) {
-        if (!existingVocabIds.has(vocabId)) {
-          missingVocabIds.push(vocabId);
-        }
-      }
-      
-      // Füge fehlende Vokabeln zu Box 1 hinzu
+      const missingVocabIds = [...allVocabIds].filter(id => !existingVocabIds.has(id));
       if (missingVocabIds.length > 0) {
         if (!boxes[1]) boxes[1] = [];
         boxes[1] = [...boxes[1], ...missingVocabIds];
@@ -163,35 +163,56 @@ export async function getFlashcardStatus(req, res, next) {
       }
     }
 
-    const allVocabs = await dbHelpers.getVocabularies({});
-    const levelCounts = {};
+    const levelCountsMap = {};
     const idToLevel = {};
-    for (const v of allVocabs) {
-      levelCounts[v.level] = (levelCounts[v.level] || 0) + 1;
+    for (const v of allStandardVocabs) {
+      levelCountsMap[v.level] = levelCountsMap[v.level] || { count: 0, custom: false };
+      levelCountsMap[v.level].count += 1;
       idToLevel[v.vocabId] = v.level;
     }
-    const levels = Object.keys(levelCounts).map(k => parseInt(k, 10)).sort((a, b) => a - b);
+    for (const pack of customPacks) {
+      const vocabs = customVocabsByPack[pack.id] || [];
+      if (vocabs.length > 0) {
+        levelCountsMap[pack.id] = { count: vocabs.length, custom: true, name: pack.name };
+        vocabs.forEach(v => { idToLevel[v.vocabId] = pack.id; });
+      }
+    }
 
     const levelBoxCounts = {};
-    for (const lvl of levels) {
-      levelBoxCounts[lvl] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    for (const key of Object.keys(levelCountsMap)) {
+      levelBoxCounts[key] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     }
     const vocabLevels = {};
     for (let b = 1; b <= 5; b++) {
-      const ids = boxes[b] || [];
-      for (const id of ids) {
+      for (const id of (boxes[b] || [])) {
         const l = idToLevel[id];
         vocabLevels[id] = l;
         if (l != null && levelBoxCounts[l]) levelBoxCounts[l][b]++;
       }
     }
 
+    const levelCounts = [];
+    const stdLevels = Object.keys(levelCountsMap)
+      .filter(k => !levelCountsMap[k].custom)
+      .map(k => parseInt(k, 10))
+      .filter(n => !Number.isNaN(n))
+      .sort((a, b) => a - b);
+    for (const l of stdLevels) {
+      levelCounts.push({ level: l, count: levelCountsMap[l].count });
+    }
+    for (const pack of customPacks) {
+      const entry = levelCountsMap[pack.id];
+      if (entry && entry.custom) {
+        levelCounts.push({ level: pack.id, count: entry.count, custom: true, name: entry.name || pack.name });
+      }
+    }
+
     res.json({
       userId: flashcardProgress.userId,
-      boxes, // Send parsed boxes object
+      boxes,
       jokerPoints: flashcardProgress.jokerPoints,
       updatedAt: flashcardProgress.updatedAt,
-      levelCounts: levels.map(l => ({ level: l, count: levelCounts[l] })),
+      levelCounts,
       levelBoxCounts,
       vocabLevels
     });

@@ -5,12 +5,12 @@ import Card from '../shared/Card';
 import ProgressBar from '../shared/ProgressBar';
 import type { Vocabulary } from '../../types';
 
-type LevelCount = { level: number; count: number };
+type LevelItem = { level: number | string; count: number; custom?: boolean; name?: string };
 
 export default function LevelMode() {
-  const [levelCounts, setLevelCounts] = useState<LevelCount[]>([]);
-  const [completedPacks, setCompletedPacks] = useState<number[]>([]);
-  const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
+  const [levelCounts, setLevelCounts] = useState<LevelItem[]>([]);
+  const [completedPacks, setCompletedPacks] = useState<(number | string)[]>([]);
+  const [selectedLevel, setSelectedLevel] = useState<number | string | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState<Vocabulary | null>(null);
   const [options, setOptions] = useState<string[]>([]);
@@ -19,7 +19,7 @@ export default function LevelMode() {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [questions, setQuestions] = useState<{ id: string; german: string; level: number }[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<{ level: number; passed: boolean; correct: number; total: number } | null>(null);
+  const [lastResult, setLastResult] = useState<{ level: number | string; passed: boolean; correct: number; total: number; name?: string } | null>(null);
 
   useEffect(() => {
     loadLevelCounts();
@@ -44,13 +44,14 @@ export default function LevelMode() {
     }
   };
 
-  const startGame = async (level: number) => {
+  const startGame = async (levelOrPackId: number | string) => {
     setLastResult(null);
     try {
-      const data = await gameAPI.startGame('level', level);
+      const isCustom = typeof levelOrPackId === 'string';
+      const data = await gameAPI.startGame('level', isCustom ? undefined : levelOrPackId, isCustom ? levelOrPackId : undefined);
       setSessionId(data.sessionId);
       setQuestions(data.questions);
-      setSelectedLevel(level);
+      setSelectedLevel(levelOrPackId);
       
       // Prüfe, ob es eine laufende Session gibt und stelle den Progress wieder her
       try {
@@ -89,12 +90,15 @@ export default function LevelMode() {
 
     const question = questionList[index];
     const vocab = await vocabAPI.getVocabularyById(question.id);
-    const allVocabs = await vocabAPI.getVocabularies({ level: vocab.level });
-    const wrongVocabs = allVocabs.vocabularies
-      .filter((v) => v.vocabId !== vocab.vocabId)
+    const allVocabs = typeof selectedLevel === 'string'
+      ? await vocabAPI.getVocabularies({ customPackId: selectedLevel })
+      : await vocabAPI.getVocabularies({ level: vocab.level });
+    const vocabList = Array.isArray(allVocabs) ? allVocabs : (allVocabs.vocabularies || allVocabs);
+    const wrongVocabs = vocabList
+      .filter((v: Vocabulary) => v.vocabId !== vocab.vocabId)
       .sort(() => 0.5 - Math.random())
       .slice(0, 3);
-    const allOptions = [vocab.english, ...wrongVocabs.map((v) => v.english)].sort(() => 0.5 - Math.random());
+    const allOptions = [vocab.english, ...wrongVocabs.map((v: Vocabulary) => v.english)].sort(() => 0.5 - Math.random());
 
     setCurrentQuestion(vocab);
     setOptions(allOptions);
@@ -112,12 +116,14 @@ export default function LevelMode() {
       const correct = session.questions?.filter((q) => q.correct).length ?? 0;
       const passed = total > 0 && correct / total >= 0.8;
 
-      if (passed) {
+      if (passed && typeof selectedLevel === 'number') {
         await progressAPI.completeLevel(selectedLevel);
         await loadCompletedPacks();
       }
 
-      setLastResult({ level: selectedLevel, passed, correct, total });
+      const levelItem = levelCounts.find((c) => c.level === selectedLevel);
+      const displayName = levelItem?.custom ? levelItem.name : (selectedLevel != null ? `Level ${selectedLevel}` : '');
+      setLastResult({ level: selectedLevel ?? 0, passed, correct, total, name: displayName });
     } catch (e) {
       console.error('Error fetching game status:', e);
     }
@@ -238,11 +244,11 @@ export default function LevelMode() {
         >
           {lastResult.passed ? (
             <p className="font-semibold">
-              Level {lastResult.level} geschafft! ({lastResult.correct}/{lastResult.total} richtig)
+              {lastResult.name || (typeof lastResult.level === 'string' ? 'Level' : `Level ${lastResult.level}`)} geschafft! ({lastResult.correct}/{lastResult.total} richtig)
             </p>
           ) : (
             <p className="font-semibold">
-              Level {lastResult.level} nicht geschafft. Du brauchst 80 % ({lastResult.correct}/
+              {lastResult.name || (typeof lastResult.level === 'string' ? 'Level' : `Level ${lastResult.level}`)} nicht geschafft. Du brauchst 80 % ({lastResult.correct}/
               {lastResult.total} richtig). Spiele alle Fragen zu Ende.
             </p>
           )}
@@ -250,12 +256,16 @@ export default function LevelMode() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {levelCounts.map(({ level, count }) => {
+        {levelCounts.map((item) => {
+          const level = item.level;
+          const count = item.count;
+          const isCustom = item.custom === true;
+          const label = isCustom ? (item.name || 'Custom') : `Level ${level}`;
           const isCompleted = completedPacks.includes(level);
-          const isUnlocked = level === 1 || completedPacks.includes(level - 1);
+          const isUnlocked = isCustom || level === 1 || completedPacks.includes(Number(level) - 1);
           return (
             <button
-              key={level}
+              key={String(level)}
               onClick={() => isUnlocked && startGame(level)}
               disabled={!isUnlocked}
               className={`p-4 rounded-lg font-bold text-lg transition-colors text-left ${
@@ -266,7 +276,7 @@ export default function LevelMode() {
                     : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
               }`}
             >
-              <span className="block">Level {level}</span>
+              <span className="block">{label}</span>
               <span className="block text-sm opacity-90">({count} Vokabeln)</span>
               {isCompleted && ' ✓'}
             </button>

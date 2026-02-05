@@ -13,6 +13,8 @@ const PROGRESS_FILE = path.join(STORAGE_DIR, 'userProgress.json');
 const FLASHCARD_FILE = path.join(STORAGE_DIR, 'flashcardProgress.json');
 const GAMEROOMS_FILE = path.join(STORAGE_DIR, 'gameRooms.json');
 const GAMESESSIONS_FILE = path.join(STORAGE_DIR, 'gameSessions.json');
+const CUSTOMPACKS_FILE = path.join(STORAGE_DIR, 'customPacks.json');
+const CUSTOMVOCAB_FILE = path.join(STORAGE_DIR, 'customVocabularies.json');
 
 // Ensure storage directory exists
 if (!fs.existsSync(STORAGE_DIR)) {
@@ -137,6 +139,10 @@ export const localDbHelpers = {
 
   async getVocabularies(filters = {}) {
     let vocabularies = readJSON(VOCAB_FILE, []);
+    if (filters.customPackId) {
+      vocabularies = await this.getCustomVocabulariesByPack(filters.customPackId, filters.userId || '');
+      return vocabularies;
+    }
     if (filters.level) {
       vocabularies = vocabularies.filter(v => v.level === filters.level);
     }
@@ -152,7 +158,9 @@ export const localDbHelpers = {
 
   async getVocabularyById(vocabId) {
     const vocabularies = readJSON(VOCAB_FILE, []);
-    return vocabularies.find(v => v.vocabId === vocabId) || null;
+    const standard = vocabularies.find(v => v.vocabId === vocabId);
+    if (standard) return standard;
+    return await this.getCustomVocabularyById(vocabId);
   },
 
   async updateVocabulary(vocabId, vocabData) {
@@ -290,5 +298,88 @@ export const localDbHelpers = {
       s.level === level && 
       !s.completed
     ) || null;
+  },
+
+  // Custom Packs (benutzerdefinierte Vokabel-Level)
+  async createCustomPack(userId, name) {
+    const packs = readJSON(CUSTOMPACKS_FILE, []);
+    const newPack = {
+      id: generateId(),
+      userId,
+      name: name || 'Neues Level',
+      createdAt: Date.now()
+    };
+    packs.push(newPack);
+    writeJSON(CUSTOMPACKS_FILE, packs);
+    return newPack;
+  },
+
+  async getCustomPacks(userId) {
+    const packs = readJSON(CUSTOMPACKS_FILE, []);
+    return packs.filter(p => p.userId === userId).sort((a, b) => a.createdAt - b.createdAt);
+  },
+
+  async getCustomPackById(packId, userId) {
+    const packs = readJSON(CUSTOMPACKS_FILE, []);
+    const pack = packs.find(p => p.id === packId && p.userId === userId);
+    return pack || null;
+  },
+
+  async updateCustomPack(packId, userId, name) {
+    const packs = readJSON(CUSTOMPACKS_FILE, []);
+    const idx = packs.findIndex(p => p.id === packId && p.userId === userId);
+    if (idx === -1) return null;
+    packs[idx].name = name;
+    packs[idx].updatedAt = Date.now();
+    writeJSON(CUSTOMPACKS_FILE, packs);
+    return packs[idx];
+  },
+
+  async deleteCustomPack(packId, userId) {
+    const packs = readJSON(CUSTOMPACKS_FILE, []);
+    const filtered = packs.filter(p => !(p.id === packId && p.userId === userId));
+    if (filtered.length === packs.length) return false;
+    writeJSON(CUSTOMPACKS_FILE, filtered);
+    const vocabs = readJSON(CUSTOMVOCAB_FILE, []);
+    writeJSON(CUSTOMVOCAB_FILE, vocabs.filter(v => v.packId !== packId));
+    return true;
+  },
+
+  // Custom Vocabularies
+  async createCustomVocabulary(packId, userId, german, english) {
+    const vocabs = readJSON(CUSTOMVOCAB_FILE, []);
+    const vocabId = `custom-${packId}-${generateId()}`;
+    const newVocab = {
+      id: generateId(),
+      vocabId,
+      packId,
+      userId,
+      german,
+      english,
+      level: 100, // Placeholder, wird bei Abfrage über packId ermittelt
+      cefr: 'custom',
+      createdAt: Date.now()
+    };
+    vocabs.push(newVocab);
+    writeJSON(CUSTOMVOCAB_FILE, vocabs);
+    return newVocab;
+  },
+
+  async getCustomVocabulariesByPack(packId, userId) {
+    const vocabs = readJSON(CUSTOMVOCAB_FILE, []);
+    return vocabs.filter(v => v.packId === packId && v.userId === userId);
+  },
+
+  async getCustomVocabularyById(vocabId) {
+    const vocabs = readJSON(CUSTOMVOCAB_FILE, []);
+    return vocabs.find(v => v.vocabId === vocabId) || null;
+  },
+
+  async deleteCustomVocabulary(vocabId, userId) {
+    const vocabs = readJSON(CUSTOMVOCAB_FILE, []);
+    const filtered = vocabs.filter(v => !(v.vocabId === vocabId && v.userId === userId));
+    if (filtered.length === vocabs.length) return false;
+    writeJSON(CUSTOMVOCAB_FILE, filtered);
+    return true;
   }
 };

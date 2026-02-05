@@ -9,6 +9,7 @@ interface AuthContextType {
   guestLogin: () => Promise<void>;
   register: (email: string, username: string, password: string) => Promise<void>;
   logout: () => void;
+  updateUser: (updates: Partial<User>) => void;
   isAuthenticated: boolean;
 }
 
@@ -74,6 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  const updateUser = (updates: Partial<User>) => {
+    if (user) setUser({ ...user, ...updates });
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -83,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         guestLogin,
         register,
         logout,
+        updateUser,
         isAuthenticated: !!user,
       }}
     >

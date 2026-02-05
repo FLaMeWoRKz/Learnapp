@@ -4,15 +4,16 @@ import Button from '../shared/Button';
 import Card from '../shared/Card';
 import type { FlashcardProgress, Vocabulary } from '../../types';
 
+type LevelItem = { level: number | string; count: number; custom?: boolean; name?: string };
 type FlashcardData = FlashcardProgress & {
-  levelCounts?: { level: number; count: number }[];
-  levelBoxCounts?: Record<number, Record<number, number>>;
-  vocabLevels?: Record<string, number>;
+  levelCounts?: LevelItem[];
+  levelBoxCounts?: Record<number | string, Record<number, number>>;
+  vocabLevels?: Record<string, number | string>;
 };
 
 export default function FlashcardBox() {
   const [data, setData] = useState<FlashcardData | null>(null);
-  const [selectedLevels, setSelectedLevels] = useState<number[]>([]);
+  const [selectedLevels, setSelectedLevels] = useState<(number | string)[]>([]);
   const [currentBox, setCurrentBox] = useState<number>(1);
   const [currentVocab, setCurrentVocab] = useState<Vocabulary | null>(null);
   const [showAnswer, setShowAnswer] = useState(false);
@@ -40,9 +41,8 @@ export default function FlashcardBox() {
       const res = await progressAPI.getFlashcardStatus();
       setData(res as FlashcardData);
       setCurrentVocab(null);
-      // Standardmäßig Level 1, Box 1 auswählen
       if (res.levelCounts && res.levelCounts.length > 0 && selectedLevels.length === 0) {
-        setSelectedLevels([1]);
+        setSelectedLevels([res.levelCounts[0].level]);
         setCurrentBox(1);
       }
     } catch (error) {
@@ -50,19 +50,19 @@ export default function FlashcardBox() {
     }
   };
 
-  const idsForBoxAndLevel = (d: FlashcardData, boxNumber: number, level: number): string[] => {
+  const idsForBoxAndLevel = (d: FlashcardData, boxNumber: number, level: number | string): string[] => {
     if (!d?.boxes || !d.vocabLevels) return [];
     const ids = d.boxes[boxNumber] || [];
     return ids.filter((id) => d.vocabLevels![id] === level);
   };
 
-  const idsForBoxAndLevels = (d: FlashcardData, boxNumber: number, levels: number[]): string[] => {
+  const idsForBoxAndLevels = (d: FlashcardData, boxNumber: number, levels: (number | string)[]): string[] => {
     if (!d?.boxes || !d.vocabLevels) return [];
     const ids = d.boxes[boxNumber] || [];
     return ids.filter((id) => levels.includes(d.vocabLevels![id]));
   };
 
-  const loadNextVocab = async (d: FlashcardData, boxNumber: number, levels: number[]) => {
+  const loadNextVocab = async (d: FlashcardData, boxNumber: number, levels: (number | string)[]) => {
     const ids = idsForBoxAndLevels(d, boxNumber, levels);
     if (ids.length === 0) {
       setCurrentVocab(null);
@@ -72,9 +72,19 @@ export default function FlashcardBox() {
     try {
       const vocab = await vocabAPI.getVocabularyById(randomId);
       
-      // Lade alle Vokabeln für Multiple Choice
-      const allVocabs = await vocabAPI.getVocabularies({ levels });
-      const wrongVocabs = allVocabs.vocabularies
+      const numericLevels = levels.filter((l): l is number => typeof l === 'number');
+      const customPackIds = levels.filter((l): l is string => typeof l === 'string');
+      const allVocabLists: { vocabularies: { vocabId: string; english: string }[] }[] = [];
+      if (numericLevels.length > 0) {
+        const r = await vocabAPI.getVocabularies({ levels: numericLevels });
+        allVocabLists.push(r);
+      }
+      for (const packId of customPackIds) {
+        const r = await vocabAPI.getVocabularies({ customPackId: packId });
+        allVocabLists.push(r);
+      }
+      const allVocabs = allVocabLists.flatMap((x) => x.vocabularies || []);
+      const wrongVocabs = allVocabs
         .filter((v) => v.vocabId !== vocab.vocabId)
         .sort(() => 0.5 - Math.random())
         .slice(0, 3);
@@ -117,24 +127,18 @@ export default function FlashcardBox() {
       updatedAt: Date.now(),
     };
     
-    // Aktualisiere levelBoxCounts für alle ausgewählten Level
-    if (updated.levelBoxCounts) {
-      for (const level of selectedLevels) {
-        if (updated.levelBoxCounts[level]) {
-          const lc = { ...updated.levelBoxCounts[level] };
-          lc[currentBox] = Math.max(0, (lc[currentBox] ?? 0) - 1);
-          lc[newBox] = (lc[newBox] ?? 0) + 1;
-          updated.levelBoxCounts = { ...updated.levelBoxCounts, [level]: lc };
-        }
-      }
+    const vocabLevelKey = data.vocabLevels?.[currentVocab.vocabId] ?? ((currentVocab as Vocabulary & { packId?: string }).packId ?? currentVocab.level);
+    if (updated.levelBoxCounts && updated.levelBoxCounts[vocabLevelKey]) {
+      const lc = { ...updated.levelBoxCounts[vocabLevelKey] };
+      lc[currentBox] = Math.max(0, (lc[currentBox] ?? 0) - 1);
+      lc[newBox] = (lc[newBox] ?? 0) + 1;
+      updated.levelBoxCounts = { ...updated.levelBoxCounts, [vocabLevelKey]: lc };
     }
-
-    // Aktualisiere vocabLevels Mapping
     if (updated.vocabLevels) {
-      updated.vocabLevels[currentVocab.vocabId] = currentVocab.level;
+      updated.vocabLevels[currentVocab.vocabId] = vocabLevelKey;
     }
 
-    await progressAPI.updateProgress(currentVocab.vocabId, isCorrect, currentVocab.level);
+    await progressAPI.updateProgress(currentVocab.vocabId, isCorrect, typeof vocabLevelKey === 'number' ? vocabLevelKey : 0);
     await progressAPI.updateFlashcardProgress(newBoxes, newJokerPoints);
 
     setData(updated);
@@ -148,12 +152,13 @@ export default function FlashcardBox() {
     }, 1000);
   };
 
-  const toggleLevel = (level: number) => {
+  const toggleLevel = (level: number | string) => {
     setSelectedLevels((prev) => {
-      const next = prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level].sort((a, b) => a - b);
-      return next;
+      const next = prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level];
+      return typeof level === 'number'
+        ? next.sort((a, b) => (typeof a === 'number' && typeof b === 'number' ? a - b : 0))
+        : next;
     });
-    // Nur Vokabel zurücksetzen, wenn Level geändert wurde, aber nicht die Box
     setCurrentVocab(null);
   };
 
@@ -179,7 +184,7 @@ export default function FlashcardBox() {
     }
   }
   const totalInLevel = [1, 2, 3, 4, 5].reduce((s, b) => s + (boxCounts[b] || 0), 0);
-  const countByLevel = Object.fromEntries(levelCounts.map((l) => [l.level, l.count]));
+  const countByLevel: Record<number | string, number> = Object.fromEntries(levelCounts.map((l) => [l.level, l.count]));
   const totalSelected = selectedLevels.reduce((s, l) => s + (countByLevel[l] ?? 0), 0);
 
   // Wenn keine Level ausgewählt sind, zeige nur Level-Auswahl
@@ -191,11 +196,13 @@ export default function FlashcardBox() {
           Wähle ein oder mehrere Level aus (mehrfach wählbar). Anschließend siehst du, wie viele Vokabeln der ausgewählten Level in welcher Box liegen.
         </p>
         <div className="flex flex-wrap gap-3">
-          {levelCounts.map(({ level, count }) => {
+          {levelCounts.map((item) => {
+            const { level, count, custom, name } = item;
             const checked = selectedLevels.includes(level);
+            const label = custom ? (name || 'Custom') : `Level ${level}`;
             return (
               <label
-                key={level}
+                key={String(level)}
                 className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
                   checked
                     ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500 text-primary-800 dark:text-primary-200'
@@ -209,7 +216,7 @@ export default function FlashcardBox() {
                   className="rounded border-gray-300 dark:border-gray-600"
                 />
                 <span className="font-medium">
-                  Level {level} ({count})
+                  {label} ({count})
                 </span>
               </label>
             );
@@ -258,11 +265,13 @@ export default function FlashcardBox() {
           {levelSelectionExpanded && (
             <>
               <div className="flex flex-wrap gap-3">
-                {levelCounts.map(({ level, count }) => {
+                {levelCounts.map((item) => {
+                  const { level, count, custom, name } = item;
                   const checked = selectedLevels.includes(level);
+                  const label = custom ? (name || 'Custom') : `Level ${level}`;
                   return (
                     <label
-                      key={level}
+                      key={String(level)}
                       className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
                         checked
                           ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500 text-primary-800 dark:text-primary-200'
@@ -276,7 +285,7 @@ export default function FlashcardBox() {
                         className="rounded border-gray-300 dark:border-gray-600"
                       />
                       <span className="font-medium">
-                        Level {level} ({count})
+                        {label} ({count})
                       </span>
                     </label>
                   );
@@ -350,11 +359,13 @@ export default function FlashcardBox() {
           {levelSelectionExpanded && (
             <>
               <div className="flex flex-wrap gap-3">
-                {levelCounts.map(({ level, count }) => {
+                {levelCounts.map((item) => {
+                  const { level, count, custom, name } = item;
                   const checked = selectedLevels.includes(level);
+                  const label = custom ? (name || 'Custom') : `Level ${level}`;
                   return (
                     <label
-                      key={level}
+                      key={String(level)}
                       className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
                         checked
                           ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500 text-primary-800 dark:text-primary-200'
@@ -368,7 +379,7 @@ export default function FlashcardBox() {
                         className="rounded border-gray-300 dark:border-gray-600"
                       />
                       <span className="font-medium">
-                        Level {level} ({count})
+                        {label} ({count})
                       </span>
                     </label>
                   );

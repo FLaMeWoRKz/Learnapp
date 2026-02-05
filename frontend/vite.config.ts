@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  appType: 'spa', // SPA-Fallback: index.html für alle Routen (verhindert 404 bei Reload/Back)
   plugins: [react()],
   server: {
     port: 5173,

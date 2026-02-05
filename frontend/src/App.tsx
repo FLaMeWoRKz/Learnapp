@@ -1,11 +1,14 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SettingsProvider } from './contexts/SettingsContext';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Profile from './pages/Profile';
 import SinglePlayer from './pages/SinglePlayer';
 import Multiplayer from './pages/Multiplayer';
+import CustomVocab from './pages/CustomVocab';
+import Einstellungen from './pages/Einstellungen';
 
 function PrivateRoute({ children }: { children: React.ReactElement }) {
   const { isAuthenticated, loading } = useAuth();
@@ -51,6 +54,22 @@ function AppRoutes() {
           </PrivateRoute>
         }
       />
+      <Route
+        path="/custom-vocab"
+        element={
+          <PrivateRoute>
+            <CustomVocab />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/einstellungen"
+        element={
+          <PrivateRoute>
+            <Einstellungen />
+          </PrivateRoute>
+        }
+      />
     </Routes>
   );
 }
@@ -58,11 +77,13 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-          <AppRoutes />
-        </div>
-      </Router>
+      <SettingsProvider>
+        <Router>
+          <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+            <AppRoutes />
+          </div>
+        </Router>
+      </SettingsProvider>
     </AuthProvider>
   );
 }

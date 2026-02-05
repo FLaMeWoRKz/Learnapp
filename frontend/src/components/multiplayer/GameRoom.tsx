@@ -34,6 +34,17 @@ export default function GameRoom({ room, roomCode, onLeave, initialQuestion }: G
   }, [initialQuestion]);
 
   useEffect(() => {
+    if (socket && user && roomCode) {
+      socketEvents.joinRoom(socket, roomCode, user.id, user.username, false);
+      const onConnect = () => {
+        socketEvents.joinRoom(socket!, roomCode, user!.id, user!.username, false);
+      };
+      socket.on('connect', onConnect);
+      return () => socket.off('connect', onConnect);
+    }
+  }, [socket, user, roomCode]);
+
+  useEffect(() => {
     if (socket) {
       const handleQuestion = (data: any) => {
         console.log('GameRoom: Question event received', data);
@@ -45,10 +56,19 @@ export default function GameRoom({ room, roomCode, onLeave, initialQuestion }: G
       };
 
       const handleRoundResult = (data: any) => {
+        console.log('GameRoom: Round result received', data);
         setRoundResult(data);
         setLeaderboard(
           data.players.sort((a: any, b: any) => b.score - a.score)
         );
+        // Update roundInfo if provided in round-result (server now sends this)
+        if (data.round !== undefined && data.totalRounds !== undefined) {
+          setRoundInfo({ round: data.round, totalRounds: data.totalRounds });
+        }
+        // Ensure we're still in the room to receive the next question
+        if (socket && user && roomCode) {
+          socketEvents.joinRoom(socket, roomCode, user.id, user.username, false);
+        }
       };
 
       const handleGameFinished = (data: any) => {
@@ -105,7 +125,62 @@ export default function GameRoom({ room, roomCode, onLeave, initialQuestion }: G
 
     // Stop timer by setting selectedAnswer first
     setSelectedAnswer(answer);
-    socketEvents.submitAnswer(socket, roomCode, user.id, currentQuestion.vocabId, answer, timeSpent);
+    
+    // Re-join room to ensure we're connected before submitting
+    socketEvents.joinRoom(socket, roomCode, user.id, user.username, false);
+    
+    // Store the question ID to check if we're still on this question later
+    const questionId = currentQuestion.vocabId;
+    
+    // Submit answer after brief delay to ensure join is processed
+    setTimeout(() => {
+      if (socket && user) {
+        console.log('📤 Submitting answer:', { 
+          roomCode, 
+          userId: user.id, 
+          vocabId: questionId, 
+          answer, 
+          timeSpent,
+          socketConnected: socket.connected,
+          socketId: socket.id
+        });
+        socketEvents.submitAnswer(socket, roomCode, user.id, questionId, answer, timeSpent);
+      } else {
+        console.log('❌ Cannot submit answer: socket or user missing', { socket: !!socket, user: !!user });
+      }
+    }, 100);
+    
+    // Fallback: If no round-result received within 5 seconds, create local result
+    // Calculate round info at the time of answering (roundInfo should be set from the question event)
+    const currentRoundNum = roundInfo?.round || (typeof room.currentRound === 'number' ? room.currentRound + 1 : 1);
+    const totalRoundsNum = roundInfo?.totalRounds || room.settings?.rounds || 10;
+    
+    console.log('🔄 Fallback setup - Round:', currentRoundNum, '/', totalRoundsNum);
+    
+    const fallbackResult = {
+      correctAnswer: currentQuestion.correctAnswer,
+      round: currentRoundNum,
+      totalRounds: totalRoundsNum,
+      players: room.players.map(p => ({
+        userId: p.userId,
+        username: p.username,
+        score: p.userId === user.id ? (player?.score || 0) + (isCorrect ? points : 0) : p.score,
+        isCorrect: p.userId === user.id ? isCorrect : false
+      }))
+    };
+    
+    setTimeout(() => {
+      setRoundResult((current: any) => {
+        if (!current) {
+          console.log('⚠️ No round-result received after 5s, using local fallback');
+          console.log('   Fallback round info:', currentRoundNum, '/', totalRoundsNum);
+          // Also update roundInfo to ensure "Weiter" button shows correctly
+          setRoundInfo({ round: currentRoundNum, totalRounds: totalRoundsNum });
+          return fallbackResult;
+        }
+        return current;
+      });
+    }, 5000);
   };
 
   const handleUseJoker = () => {
@@ -114,7 +189,19 @@ export default function GameRoom({ room, roomCode, onLeave, initialQuestion }: G
   };
 
   const handleNextRound = () => {
-    if (!socket || !user || room.hostId !== user.id) return;
+    if (!socket) {
+      console.log('❌ handleNextRound: No socket');
+      return;
+    }
+    if (!user) {
+      console.log('❌ handleNextRound: No user');
+      return;
+    }
+    if (room.hostId !== user.id) {
+      console.log('❌ handleNextRound: Not host. Host:', room.hostId, 'User:', user.id);
+      return;
+    }
+    console.log('⏭️ handleNextRound: Requesting next round...', { roomCode, userId: user.id, socketConnected: socket.connected });
     socketEvents.nextRound(socket, roomCode, user.id);
   };
 
@@ -259,11 +346,16 @@ export default function GameRoom({ room, roomCode, onLeave, initialQuestion }: G
         <h3 className="text-2xl font-bold mb-4 text-center text-gray-900 dark:text-white">
           Runden-Ergebnis
         </h3>
-        {roundInfo && (
-          <p className="text-center text-sm mb-4 text-gray-500 dark:text-gray-400">
-            Runde {roundInfo.round} von {roundInfo.totalRounds}
-          </p>
-        )}
+        {(() => {
+          // Use roundResult.round if available (from server), otherwise fallback to roundInfo or room data
+          const currentRound = roundResult.round || roundInfo?.round || (room.currentRound || 0) + 1;
+          const totalRounds = roundResult.totalRounds || roundInfo?.totalRounds || room.settings?.rounds || 10;
+          return (
+            <p className="text-center text-sm mb-4 text-gray-500 dark:text-gray-400">
+              Runde {currentRound} von {totalRounds}
+            </p>
+          );
+        })()}
         <p className="text-center text-lg mb-6 text-gray-600 dark:text-gray-300">
           Richtige Antwort: <span className="font-bold text-primary-600">{roundResult.correctAnswer}</span>
         </p>
@@ -286,16 +378,27 @@ export default function GameRoom({ room, roomCode, onLeave, initialQuestion }: G
             </div>
           ))}
         </div>
-        {isHost && roundInfo && roundInfo.round < roundInfo.totalRounds && (
-          <Button fullWidth size="lg" onClick={handleNextRound}>
-            Weiter zur nächsten Frage
-          </Button>
-        )}
-        {!isHost && roundInfo && roundInfo.round < roundInfo.totalRounds && (
-          <p className="text-center text-gray-600 dark:text-gray-400">
-            Warte auf Host zum Fortfahren...
-          </p>
-        )}
+        {(() => {
+          // Calculate if there are more rounds using all available sources
+          const currentRound = roundResult.round || roundInfo?.round || (room.currentRound || 0) + 1;
+          const totalRounds = roundResult.totalRounds || roundInfo?.totalRounds || room.settings?.rounds || 10;
+          const hasMoreRounds = currentRound < totalRounds;
+          
+          if (isHost && hasMoreRounds) {
+            return (
+              <Button fullWidth size="lg" onClick={handleNextRound}>
+                Weiter zur nächsten Frage
+              </Button>
+            );
+          } else if (!isHost && hasMoreRounds) {
+            return (
+              <p className="text-center text-gray-600 dark:text-gray-400">
+                Warte auf Host zum Fortfahren...
+              </p>
+            );
+          }
+          return null;
+        })()}
       </Card>
     );
   }

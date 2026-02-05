@@ -104,9 +104,21 @@ export async function getLevelCounts(req, res, next) {
       const l = v.level;
       byLevel[l] = (byLevel[l] || 0) + 1;
     }
-    const levels = Object.keys(byLevel)
+    let levels = Object.keys(byLevel)
+      .filter(k => parseInt(k, 10) < 100) // Nur System-Level (1-15)
       .map((k) => ({ level: parseInt(k, 10), count: byLevel[k] }))
       .sort((a, b) => a.level - b.level);
+
+    // Custom Packs für eingeloggte User hinzufügen
+    if (req.user && req.user.userId) {
+      const customPacks = await dbHelpers.getCustomPacks(req.user.userId);
+      for (const pack of customPacks) {
+        const vocabs = await dbHelpers.getCustomVocabulariesByPack(pack.id, req.user.userId);
+        if (vocabs.length > 0) {
+          levels.push({ level: pack.id, count: vocabs.length, custom: true, name: pack.name });
+        }
+      }
+    }
     res.json({ levels });
   } catch (error) {
     next(error);

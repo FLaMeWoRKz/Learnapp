@@ -39,7 +39,9 @@ export async function startGame(req, res, next) {
     // Get vocabularies based on mode
     let vocabularies = [];
     
-    if (mode === 'level' && level) {
+    if (mode === 'level' && packId && typeof packId === 'string') {
+      vocabularies = await dbHelpers.getVocabularies({ customPackId: packId, userId });
+    } else if (mode === 'level' && level) {
       vocabularies = await dbHelpers.getVocabularies({ level });
     } else if (mode === 'flashcard') {
       // Get vocabularies from flashcard boxes

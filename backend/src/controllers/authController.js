@@ -187,3 +187,84 @@ export async function getMe(req, res, next) {
     next(error);
   }
 }
+
+export async function updateProfile(req, res, next) {
+  try {
+    const userId = req.user.userId;
+    const user = await dbHelpers.getUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.isGuest) {
+      return res.status(400).json({ error: 'Gäste können ihr Profil nicht ändern' });
+    }
+
+    const { username, email } = req.body;
+    const updates = {};
+
+    if (username !== undefined && username.trim()) {
+      const existing = await dbHelpers.getUserByUsername(username.trim());
+      if (existing && existing.id !== userId) {
+        return res.status(409).json({ error: 'Benutzername bereits vergeben' });
+      }
+      updates.username = username.trim();
+    }
+
+    if (email !== undefined && email.trim()) {
+      const existing = await dbHelpers.getUserByEmail(email.trim());
+      if (existing && existing.id !== userId) {
+        return res.status(409).json({ error: 'E-Mail bereits vergeben' });
+      }
+      updates.email = email.trim();
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Keine Änderungen angegeben' });
+    }
+
+    await dbHelpers.updateUser(userId, updates);
+
+    res.json({
+      message: 'Profil aktualisiert',
+      user: {
+        id: user.id,
+        email: updates.email || user.email,
+        username: updates.username || user.username
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function changePassword(req, res, next) {
+  try {
+    const userId = req.user.userId;
+    const user = await dbHelpers.getUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.isGuest || !user.passwordHash) {
+      return res.status(400).json({ error: 'Passwort-Änderung nicht möglich' });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Aktuelles und neues Passwort erforderlich' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Neues Passwort muss mindestens 6 Zeichen haben' });
+    }
+
+    const isValid = await comparePassword(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Aktuelles Passwort falsch' });
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await dbHelpers.updateUser(userId, { passwordHash });
+
+    res.json({ message: 'Passwort geändert' });
+  } catch (error) {
+    next(error);
+  }
+}

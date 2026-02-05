@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
 import { vocabAPI } from '../../services/api';
+import { useSettings } from '../../contexts/SettingsContext';
 import Button from '../shared/Button';
 import Card from '../shared/Card';
 import type { Vocabulary } from '../../types';
 
-type LevelCount = { level: number; count: number };
+type LevelItem = { level: number | string; count: number; custom?: boolean; name?: string };
 
 export default function FreePractice() {
-  const [levelCounts, setLevelCounts] = useState<LevelCount[]>([]);
+  const { vocabDirection } = useSettings();
+  const [levelCounts, setLevelCounts] = useState<LevelItem[]>([]);
   const [selectedLevels, setSelectedLevels] = useState<number[]>([1]);
+  const [selectedCustomPacks, setSelectedCustomPacks] = useState<string[]>([]);
   const [vocabularies, setVocabularies] = useState<Vocabulary[]>([]);
   const [currentVocab, setCurrentVocab] = useState<Vocabulary | null>(null);
   const [options, setOptions] = useState<string[]>([]);
@@ -21,21 +24,28 @@ export default function FreePractice() {
   }, []);
 
   useEffect(() => {
-    if (selectedLevels.length === 0) return;
+    if (selectedLevels.length === 0 && selectedCustomPacks.length === 0) return;
     loadVocabularies();
-  }, [selectedLevels]);
+  }, [selectedLevels, selectedCustomPacks]);
 
   const loadVocabularies = async () => {
     try {
-      const filters =
-        selectedLevels.length === 1
-          ? { level: selectedLevels[0] }
-          : { levels: selectedLevels };
-      const data = await vocabAPI.getVocabularies(filters);
-      const list = data.vocabularies || [];
-      setVocabularies(list);
-      if (list.length > 0) {
-        loadRandomQuestion(list);
+      const allVocabs: Vocabulary[] = [];
+      if (selectedLevels.length > 0) {
+        const filters =
+          selectedLevels.length === 1
+            ? { level: selectedLevels[0] }
+            : { levels: selectedLevels };
+        const data = await vocabAPI.getVocabularies(filters);
+        allVocabs.push(...(data.vocabularies || []));
+      }
+      for (const packId of selectedCustomPacks) {
+        const data = await vocabAPI.getVocabularies({ customPackId: packId });
+        allVocabs.push(...(data.vocabularies || []));
+      }
+      setVocabularies(allVocabs);
+      if (allVocabs.length > 0) {
+        loadRandomQuestion(allVocabs);
       } else {
         setCurrentVocab(null);
       }
@@ -46,13 +56,14 @@ export default function FreePractice() {
 
   const loadRandomQuestion = (vocabList: Vocabulary[]) => {
     const randomVocab = vocabList[Math.floor(Math.random() * vocabList.length)];
+    const isDeEn = vocabDirection === 'de-en';
     const wrongVocabs = vocabList
       .filter((v) => v.vocabId !== randomVocab.vocabId)
       .sort(() => 0.5 - Math.random())
       .slice(0, 3);
-    const allOptions = [randomVocab.english, ...wrongVocabs.map((v) => v.english)].sort(
-      () => 0.5 - Math.random()
-    );
+    const correctOpt = isDeEn ? randomVocab.english : randomVocab.german;
+    const wrongOpts = isDeEn ? wrongVocabs.map((v) => v.english) : wrongVocabs.map((v) => v.german);
+    const allOptions = [correctOpt, ...wrongOpts].sort(() => 0.5 - Math.random());
     setCurrentVocab(randomVocab);
     setOptions(allOptions);
     setSelectedAnswer(null);
@@ -62,20 +73,31 @@ export default function FreePractice() {
   const toggleLevel = (level: number) => {
     setSelectedLevels((prev) => {
       const next = prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level].sort((a, b) => a - b);
-      return next.length > 0 ? next : [level];
+      return next.length > 0 || selectedCustomPacks.length > 0 ? next : [level];
+    });
+  };
+
+  const toggleCustomPack = (packId: string) => {
+    setSelectedCustomPacks((prev) => {
+      const next = prev.includes(packId) ? prev.filter((p) => p !== packId) : [...prev, packId];
+      if (next.length === 0 && selectedLevels.length === 0) setSelectedLevels([1]);
+      return next;
     });
   };
 
   const handleAnswer = (answer: string) => {
     if (!currentVocab) return;
-    const isCorrect = answer === currentVocab.english;
+    const correctAnswer = vocabDirection === 'de-en' ? currentVocab.english : currentVocab.german;
+    const isCorrect = answer === correctAnswer;
     setSelectedAnswer(answer);
     setCorrect(isCorrect);
     setTimeout(() => loadRandomQuestion(vocabularies), 1000);
   };
 
-  const countByLevel = Object.fromEntries(levelCounts.map((l) => [l.level, l.count]));
-  const totalSelected = selectedLevels.reduce((s, l) => s + (countByLevel[l] ?? 0), 0);
+  const countByLevel = Object.fromEntries(levelCounts.map((l) => [String(l.level), l.count]));
+  const totalSelected =
+    selectedLevels.reduce((s, l) => s + (countByLevel[String(l)] ?? 0), 0) +
+    selectedCustomPacks.reduce((s, p) => s + (countByLevel[p] ?? 0), 0);
 
   return (
     <Card>
@@ -100,11 +122,18 @@ export default function FreePractice() {
         {levelSelectionExpanded && (
           <>
             <div className="flex flex-wrap gap-3">
-              {levelCounts.map(({ level, count }) => {
-                const checked = selectedLevels.includes(level);
+              {levelCounts.map((item) => {
+                const level = item.level;
+                const count = item.count;
+                const isCustom = item.custom === true;
+                const checked = isCustom
+                  ? selectedCustomPacks.includes(String(level))
+                  : selectedLevels.includes(Number(level));
+                const toggle = isCustom ? () => toggleCustomPack(String(level)) : () => toggleLevel(Number(level));
+                const label = isCustom ? (item.name || `Pack`) : `Level ${level}`;
                 return (
                   <label
-                    key={level}
+                    key={String(level)}
                     className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
                       checked
                         ? 'bg-primary-100 dark:bg-primary-900/30 border-primary-500 text-primary-800 dark:text-primary-200'
@@ -114,11 +143,11 @@ export default function FreePractice() {
                     <input
                       type="checkbox"
                       checked={checked}
-                      onChange={() => toggleLevel(level)}
+                      onChange={toggle}
                       className="rounded border-gray-300 dark:border-gray-600"
                     />
                     <span className="font-medium">
-                      Level {level} ({count})
+                      {label} ({count})
                     </span>
                   </label>
                 );
@@ -126,7 +155,7 @@ export default function FreePractice() {
             </div>
             {levelCounts.length > 0 && (
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                {selectedLevels.length} Level ausgewählt · {totalSelected} Vokabeln gesamt
+                {selectedLevels.length + selectedCustomPacks.length} ausgewählt · {totalSelected} Vokabeln gesamt
               </p>
             )}
             {levelCounts.length === 0 && (
@@ -136,7 +165,7 @@ export default function FreePractice() {
         )}
         {!levelSelectionExpanded && (
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {selectedLevels.length} Level ausgewählt · {totalSelected} Vokabeln gesamt
+            {selectedLevels.length + selectedCustomPacks.length} ausgewählt · {totalSelected} Vokabeln gesamt
           </p>
         )}
       </div>
@@ -145,7 +174,7 @@ export default function FreePractice() {
         <>
           <div className="text-center mb-8">
             <h4 className="text-3xl font-bold mb-4 text-gray-900 dark:text-white">
-              {currentVocab.german}
+              {vocabDirection === 'de-en' ? currentVocab.german : currentVocab.english}
             </h4>
             {correct !== null && (
               <p
@@ -153,7 +182,7 @@ export default function FreePractice() {
                   correct ? 'text-green-600' : 'text-red-600'
                 }`}
               >
-                {correct ? '✓ Richtig!' : `✗ Falsch. Richtig: ${currentVocab.english}`}
+                {correct ? '✓ Richtig!' : `✗ Falsch. Richtig: ${vocabDirection === 'de-en' ? currentVocab.english : currentVocab.german}`}
               </p>
             )}
           </div>
@@ -161,7 +190,8 @@ export default function FreePractice() {
           <div className="grid grid-cols-2 gap-4">
             {options.map((opt, i) => {
               const isSelected = selectedAnswer === opt;
-              const isCorrect = opt === currentVocab.english;
+              const correctOpt = vocabDirection === 'de-en' ? currentVocab.english : currentVocab.german;
+              const isCorrect = opt === correctOpt;
               
               // Color mapping for Kahoot-like appearance
               const colors = [
@@ -205,7 +235,7 @@ export default function FreePractice() {
         </>
       )}
 
-      {selectedLevels.length > 0 && vocabularies.length === 0 && !currentVocab && (
+      {(selectedLevels.length > 0 || selectedCustomPacks.length > 0) && vocabularies.length === 0 && !currentVocab && (
         <p className="text-gray-500 dark:text-gray-400">
           Keine Vokabeln in den gewählten Leveln.
         </p>
