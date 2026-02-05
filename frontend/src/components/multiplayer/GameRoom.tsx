@@ -40,8 +40,9 @@ export default function GameRoom({ room, roomCode, onLeave, initialQuestion }: G
         socketEvents.joinRoom(socket!, roomCode, user!.id, user!.username, false);
       };
       socket.on('connect', onConnect);
-      return () => socket.off('connect', onConnect);
+      return () => { socket.off('connect', onConnect); };
     }
+    return undefined;
   }, [socket, user, roomCode]);
 
   useEffect(() => {

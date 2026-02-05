@@ -74,6 +74,7 @@ export interface GameRoom {
   settings: {
     rounds: number;
     selectedPacks: number[];
+    selectedCustomPacks?: string[];
     timerEnabled: boolean;
     timerDuration: number;
     botCount?: number;

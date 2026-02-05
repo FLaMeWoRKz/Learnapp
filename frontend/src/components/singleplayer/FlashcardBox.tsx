@@ -185,7 +185,7 @@ export default function FlashcardBox() {
   }
   const totalInLevel = [1, 2, 3, 4, 5].reduce((s, b) => s + (boxCounts[b] || 0), 0);
   const countByLevel: Record<number | string, number> = Object.fromEntries(levelCounts.map((l) => [l.level, l.count]));
-  const totalSelected = selectedLevels.reduce((s, l) => s + (countByLevel[l] ?? 0), 0);
+  const totalSelected = selectedLevels.reduce<number>((s, l) => s + (countByLevel[l] ?? 0), 0);
 
   // Wenn keine Level ausgewählt sind, zeige nur Level-Auswahl
   if (selectedLevels.length === 0) {

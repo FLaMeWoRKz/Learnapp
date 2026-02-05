@@ -93,7 +93,9 @@ export default function LevelMode() {
     const allVocabs = typeof selectedLevel === 'string'
       ? await vocabAPI.getVocabularies({ customPackId: selectedLevel })
       : await vocabAPI.getVocabularies({ level: vocab.level });
-    const vocabList = Array.isArray(allVocabs) ? allVocabs : (allVocabs.vocabularies || allVocabs);
+    const vocabList: Vocabulary[] = Array.isArray(allVocabs) 
+      ? allVocabs 
+      : ((allVocabs as { vocabularies?: Vocabulary[] }).vocabularies || []);
     const wrongVocabs = vocabList
       .filter((v: Vocabulary) => v.vocabId !== vocab.vocabId)
       .sort(() => 0.5 - Math.random())

@@ -9,7 +9,7 @@ import Lobby from '../components/multiplayer/Lobby';
 import GameRoom from '../components/multiplayer/GameRoom';
 import type { GameRoom as GameRoomType } from '../types';
 
-type LevelCount = { level: number; count: number };
+type LevelCount = { level: number | string; count: number; custom?: boolean; name?: string };
 
 export default function Multiplayer() {
   const { user } = useAuth();
