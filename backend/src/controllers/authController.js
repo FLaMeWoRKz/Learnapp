@@ -6,6 +6,15 @@ import * as emailService from '../services/emailService.js';
 
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || '';
 
+/** Prüft, ob SMTP-Umgebungsvariablen gesetzt sind (für Problemdiagnose). Keine sensiblen Werte zurückgeben. */
+export function getSmtpStatus(req, res) {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const smtpConfigured = !!(host && user && pass);
+  res.json({ smtpConfigured, hasHost: !!host, hasUser: !!user, hasPass: !!pass });
+}
+
 function authError(res, statusCode = 500) {
   const message = 'Ein Fehler ist aufgetreten. Bitte versuche es später erneut. Wenn das Problem bestehen bleibt, wende dich an einen Systemadministrator.';
   return res.status(statusCode).json({ error: message, contactEmail: SUPPORT_EMAIL });
@@ -244,9 +253,10 @@ export async function requestPasswordReset(req, res, next) {
       const passwordResetToken = generateSecureToken();
       const passwordResetExpires = getTokenExpiry();
       await dbHelpers.updateUser(user.id, { passwordResetToken, passwordResetExpires });
+      console.log('[Passwort-Reset] Versende E-Mail an Nutzer (E-Mail-Maskierung: ***@' + (user.email || '').split('@')[1] + ')');
       // E-Mail im Hintergrund (blockiert nicht die HTTP-Antwort; verhindert Timeout bei langsamer SMTP)
       emailService.sendPasswordResetEmail(user, passwordResetToken).catch((mailErr) => {
-        console.error('Password reset email failed:', mailErr.message);
+        console.error('[Passwort-Reset] E-Mail-Versand fehlgeschlagen:', mailErr.message, mailErr.code || '', mailErr.response ? '(SMTP-Response vorhanden)' : '');
       });
     }
     res.json({

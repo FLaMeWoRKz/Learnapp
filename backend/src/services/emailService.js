@@ -41,12 +41,14 @@ async function sendMail(options) {
   if (transport) {
     try {
       await transport.sendMail(mailOptions);
+      console.log('[E-Mail gesendet]', { to: options.to, subject: options.subject });
     } catch (err) {
-      console.error('E-Mail senden fehlgeschlagen:', err.message);
+      console.error('E-Mail senden fehlgeschlagen:', err.message, err.code || '');
       throw err;
     }
   } else {
-    console.log('[E-Mail (nicht gesendet)]', { to: options.to, subject: options.subject });
+    console.error('[E-Mail NICHT gesendet] SMTP nicht konfiguriert (SMTP_HOST, SMTP_USER, SMTP_PASS prüfen). Empfänger:', options.to, 'Betreff:', options.subject);
+    throw new Error('SMTP_NOT_CONFIGURED');
   }
 }
 

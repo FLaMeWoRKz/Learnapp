@@ -11,7 +11,8 @@ import {
   resetPassword,
   changeEmail,
   confirmEmailChange,
-  changeUsername
+  changeUsername,
+  getSmtpStatus
 } from '../controllers/authController.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -24,6 +25,7 @@ router.get('/me', authenticateToken, getMe);
 router.put('/profile', authenticateToken, updateProfile);
 router.put('/password', authenticateToken, changePassword);
 
+router.get('/smtp-status', getSmtpStatus);
 router.get('/verify-email', verifyEmail);
 router.post('/verify-email', verifyEmail);
 router.post('/request-password-reset', requestPasswordReset);
