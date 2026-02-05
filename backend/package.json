@@ -26,6 +26,7 @@
     "papaparse": "^5.4.1",
     "@instantdb/admin": "^0.15.1",
     "@instantdb/core": "^0.15.1",
+    "nodemailer": "^6.9.16",
     "tsx": "^4.7.0"
   },
   "devDependencies": {

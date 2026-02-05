@@ -124,6 +124,24 @@ export const localDbHelpers = {
     return null;
   },
 
+  async getUserByEmailVerificationToken(token) {
+    if (!token) return null;
+    const users = readJSON(USERS_FILE, []);
+    return users.find(u => u.emailVerificationToken === token && u.emailVerificationExpires > Date.now()) || null;
+  },
+
+  async getUserByPasswordResetToken(token) {
+    if (!token) return null;
+    const users = readJSON(USERS_FILE, []);
+    return users.find(u => u.passwordResetToken === token && u.passwordResetExpires > Date.now()) || null;
+  },
+
+  async getUserByChangeEmailToken(token) {
+    if (!token) return null;
+    const users = readJSON(USERS_FILE, []);
+    return users.find(u => u.changeEmailToken === token && u.changeEmailExpires > Date.now()) || null;
+  },
+
   // Vocabulary operations
   async createVocabulary(vocabData) {
     const vocabularies = readJSON(VOCAB_FILE, []);

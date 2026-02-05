@@ -67,6 +67,11 @@ export default function Login() {
               required
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
             />
+            <p className="mt-1 text-right text-sm">
+              <Link to="/password-reset-request" className="text-primary-600 hover:text-primary-700">
+                Passwort vergessen?
+              </Link>
+            </p>
           </div>
 
           <Button type="submit" fullWidth disabled={loading}>

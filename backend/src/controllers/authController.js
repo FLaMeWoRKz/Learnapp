@@ -1,6 +1,8 @@
 import { hashPassword, comparePassword } from '../utils/password.js';
 import { generateToken } from '../utils/jwt.js';
+import { generateSecureToken, getTokenExpiry } from '../utils/tokens.js';
 import { dbHelpers } from '../config/instantdb.js';
+import * as emailService from '../services/emailService.js';
 
 export async function register(req, res, next) {
   try {
@@ -15,29 +17,32 @@ export async function register(req, res, next) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    // Check if user already exists
-    const existingUserByEmail = await dbHelpers.getUserByEmail(email);
+    const emailNorm = email.trim().toLowerCase();
+    const usernameTrim = username.trim();
+
+    const existingUserByEmail = await dbHelpers.getUserByEmail(emailNorm);
     if (existingUserByEmail) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    const existingUserByUsername = await dbHelpers.getUserByUsername(username);
+    const existingUserByUsername = await dbHelpers.getUserByUsername(usernameTrim);
     if (existingUserByUsername) {
       return res.status(409).json({ error: 'Username already taken' });
     }
 
-    // Hash password
     const passwordHash = await hashPassword(password);
-
-    // Create user
     const now = Date.now();
+    const emailVerificationToken = generateSecureToken();
+    const emailVerificationExpires = getTokenExpiry();
     const userData = {
-      email,
-      username,
+      email: emailNorm,
+      username: usernameTrim,
       passwordHash,
+      emailVerified: false,
+      emailVerificationToken,
+      emailVerificationExpires,
       createdAt: now,
       updatedAt: now,
-      // WICHTIG: stats als JSON-String speichern (InstantDB erwartet String-Typ)
       stats: JSON.stringify({
         totalWordsLearned: 0,
         totalJokerPoints: 0,
@@ -47,21 +52,28 @@ export async function register(req, res, next) {
     };
 
     const userId = await dbHelpers.createUser(userData);
+    const userForEmail = { id: userId, email: emailNorm, username: usernameTrim };
 
-    // Generate token
+    try {
+      await emailService.sendVerificationEmail(userForEmail, emailVerificationToken);
+    } catch (mailErr) {
+      console.error('Verification email failed:', mailErr.message);
+    }
+
     const token = generateToken({
       userId,
-      email,
-      username
+      email: emailNorm,
+      username: usernameTrim
     });
 
     res.status(201).json({
-      message: 'User registered successfully',
+      message: 'Registrierung erfolgreich. Bitte bestätige deine E-Mail-Adresse.',
       token,
       user: {
         id: userId,
-        email,
-        username
+        email: emailNorm,
+        username: usernameTrim,
+        emailVerified: false
       }
     });
   } catch (error) {
@@ -103,6 +115,7 @@ export async function login(req, res, next) {
         id: user.id,
         email: user.email,
         username: user.username,
+        emailVerified: user.emailVerified === true,
         stats: typeof user.stats === 'string' ? JSON.parse(user.stats) : user.stats
       }
     });
@@ -178,11 +191,193 @@ export async function getMe(req, res, next) {
         id: user.id,
         email: user.email,
         username: user.username,
+        emailVerified: user.emailVerified === true,
         stats: typeof user.stats === 'string' ? JSON.parse(user.stats) : user.stats,
         createdAt: user.createdAt,
         isGuest: user.isGuest || false
       }
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function verifyEmail(req, res, next) {
+  try {
+    const token = req.body?.token || req.query?.token;
+    if (!token) {
+      return res.status(400).json({ error: 'Token fehlt' });
+    }
+    const user = await dbHelpers.getUserByEmailVerificationToken(token);
+    if (!user) {
+      return res.status(400).json({ error: 'Ungültiger oder abgelaufener Link. Bitte registriere dich erneut oder fordere einen neuen Link an.' });
+    }
+    await dbHelpers.updateUser(user.id, {
+      emailVerified: true,
+      emailVerificationToken: null,
+      emailVerificationExpires: null
+    });
+    try {
+      await emailService.sendWelcomeEmail({ email: user.email, username: user.username });
+    } catch (mailErr) {
+      console.error('Welcome email failed:', mailErr.message);
+    }
+    res.json({ message: 'E-Mail bestätigt. Du kannst dich jetzt einloggen.', emailVerified: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function requestPasswordReset(req, res, next) {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({ error: 'E-Mail-Adresse ist erforderlich' });
+    }
+    const user = await dbHelpers.getUserByEmail(email.trim().toLowerCase());
+    if (user && !user.isGuest && user.passwordHash) {
+      const passwordResetToken = generateSecureToken();
+      const passwordResetExpires = getTokenExpiry();
+      await dbHelpers.updateUser(user.id, { passwordResetToken, passwordResetExpires });
+      try {
+        await emailService.sendPasswordResetEmail(user, passwordResetToken);
+      } catch (mailErr) {
+        console.error('Password reset email failed:', mailErr.message);
+      }
+    }
+    res.json({
+      message: 'Falls ein Konto mit dieser E-Mail-Adresse existiert, haben wir dir einen Link zum Zurücksetzen des Passworts gesendet.'
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function resetPassword(req, res, next) {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Token und neues Passwort sind erforderlich' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Das Passwort muss mindestens 6 Zeichen haben' });
+    }
+    const user = await dbHelpers.getUserByPasswordResetToken(token);
+    if (!user) {
+      return res.status(400).json({ error: 'Ungültiger oder abgelaufener Link.' });
+    }
+    const passwordHash = await hashPassword(newPassword);
+    await dbHelpers.updateUser(user.id, {
+      passwordHash,
+      passwordResetToken: null,
+      passwordResetExpires: null
+    });
+    res.json({ message: 'Passwort wurde geändert. Du kannst dich jetzt einloggen.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function changeEmail(req, res, next) {
+  try {
+    const userId = req.user.userId;
+    const user = await dbHelpers.getUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.isGuest || !user.passwordHash) {
+      return res.status(400).json({ error: 'E-Mail-Änderung nicht möglich' });
+    }
+    const { newEmail, currentPassword } = req.body;
+    if (!newEmail || !currentPassword) {
+      return res.status(400).json({ error: 'Neue E-Mail und aktuelles Passwort erforderlich' });
+    }
+    const newEmailNorm = newEmail.trim().toLowerCase();
+    if (newEmailNorm === (user.email || '').toLowerCase()) {
+      return res.status(400).json({ error: 'Die neue E-Mail ist identisch mit der aktuellen' });
+    }
+    const existing = await dbHelpers.getUserByEmail(newEmailNorm);
+    if (existing) {
+      return res.status(409).json({ error: 'Diese E-Mail-Adresse ist bereits vergeben' });
+    }
+    const isValid = await comparePassword(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
+    }
+    const changeEmailToken = generateSecureToken();
+    const changeEmailExpires = getTokenExpiry();
+    await dbHelpers.updateUser(userId, {
+      pendingEmail: newEmailNorm,
+      changeEmailToken,
+      changeEmailExpires
+    });
+    try {
+      await emailService.sendChangeEmailConfirmation(user, changeEmailToken, newEmailNorm);
+    } catch (mailErr) {
+      console.error('Change email confirmation failed:', mailErr.message);
+    }
+    res.json({ message: 'Wir haben dir eine E-Mail an deine neue Adresse geschickt. Bitte bestätige sie.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function confirmEmailChange(req, res, next) {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: 'Token fehlt' });
+    }
+    const user = await dbHelpers.getUserByChangeEmailToken(token);
+    if (!user) {
+      return res.status(400).json({ error: 'Ungültiger oder abgelaufener Link.' });
+    }
+    const newEmail = user.pendingEmail;
+    if (!newEmail) {
+      return res.status(400).json({ error: 'Keine ausstehende E-Mail-Änderung.' });
+    }
+    await dbHelpers.updateUser(user.id, {
+      email: newEmail,
+      pendingEmail: null,
+      changeEmailToken: null,
+      changeEmailExpires: null,
+      emailVerified: true
+    });
+    res.json({ message: 'E-Mail-Adresse wurde geändert.' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function changeUsername(req, res, next) {
+  try {
+    const userId = req.user.userId;
+    const user = await dbHelpers.getUserById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.isGuest || !user.passwordHash) {
+      return res.status(400).json({ error: 'Benutzername-Änderung nicht möglich' });
+    }
+    const { newUsername, currentPassword } = req.body;
+    if (!newUsername || !currentPassword) {
+      return res.status(400).json({ error: 'Neuer Benutzername und aktuelles Passwort erforderlich' });
+    }
+    const trimmed = newUsername.trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'Benutzername darf nicht leer sein' });
+    }
+    const existing = await dbHelpers.getUserByUsername(trimmed);
+    if (existing && existing.id !== userId) {
+      return res.status(409).json({ error: 'Dieser Benutzername ist bereits vergeben' });
+    }
+    const isValid = await comparePassword(currentPassword, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
+    }
+    await dbHelpers.updateUser(userId, { username: trimmed });
+    try {
+      await emailService.sendUsernameChangedNotification({ ...user, username: trimmed });
+    } catch (mailErr) {
+      console.error('Username changed notification failed:', mailErr.message);
+    }
+    res.json({ message: 'Benutzername wurde geändert.', username: trimmed });
   } catch (error) {
     next(error);
   }

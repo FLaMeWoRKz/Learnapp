@@ -45,7 +45,7 @@ async function testAPI() {
     });
     const registerData = await registerRes.json();
     if (registerRes.ok) {
-      console.log('✅ User registered:', registerData.user);
+      console.log('✅ User registered:', registerData.user, '(emailVerified:', registerData.user?.emailVerified, ')');
       const token = registerData.token;
       console.log('');
 
@@ -61,8 +61,22 @@ async function testAPI() {
       console.log('✅ User info:', meData);
       console.log('');
 
-      // Test 4: Get vocabularies
-      console.log('4️⃣ Testing get vocabularies...');
+      // Test 4: Request password reset (generic success, no user enumeration)
+      console.log('4️⃣ Testing request password reset...');
+      const resetReqRes = await fetch(`${API_URL}/api/auth/request-password-reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'test@example.com' })
+      });
+      if (!resetReqRes.ok) {
+        throw new Error(`Request password reset failed: ${resetReqRes.status}`);
+      }
+      const resetReqData = await resetReqRes.json();
+      console.log('✅ Request password reset:', resetReqData.message);
+      console.log('');
+
+      // Test 5: Get vocabularies
+      console.log('5️⃣ Testing get vocabularies...');
       const vocabRes = await fetch(`${API_URL}/api/vocab`);
       if (!vocabRes.ok) {
         console.log('⚠️ Vocab endpoint returned:', vocabRes.status);

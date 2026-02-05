@@ -104,6 +104,36 @@ export const authAPI = {
     const response = await api.put('/auth/password', { currentPassword, newPassword });
     return response.data;
   },
+
+  verifyEmail: async (token: string) => {
+    const response = await api.post('/auth/verify-email', { token });
+    return response.data;
+  },
+
+  requestPasswordReset: async (email: string) => {
+    const response = await api.post('/auth/request-password-reset', { email });
+    return response.data;
+  },
+
+  resetPassword: async (token: string, newPassword: string) => {
+    const response = await api.post('/auth/reset-password', { token, newPassword });
+    return response.data;
+  },
+
+  changeEmail: async (newEmail: string, currentPassword: string) => {
+    const response = await api.post('/auth/change-email', { newEmail, currentPassword });
+    return response.data;
+  },
+
+  confirmEmailChange: async (token: string) => {
+    const response = await api.post('/auth/confirm-email-change', { token });
+    return response.data;
+  },
+
+  changeUsername: async (newUsername: string, currentPassword: string) => {
+    const response = await api.post('/auth/change-username', { newUsername, currentPassword });
+    return response.data;
+  },
 };
 
 // Vocabulary API

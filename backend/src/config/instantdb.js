@@ -145,6 +145,30 @@ export const dbHelpers = {
     return user;
   },
 
+  async getUserByEmailVerificationToken(token) {
+    if (STORAGE_MODE === 'local' || !db || !token) return await localDbHelpers.getUserByEmailVerificationToken(token);
+    const result = await db.query({ users: { $: { where: { emailVerificationToken: token } } } });
+    const user = result?.users?.[0] || null;
+    if (user && user.emailVerificationExpires && user.emailVerificationExpires > Date.now()) return user;
+    return null;
+  },
+
+  async getUserByPasswordResetToken(token) {
+    if (STORAGE_MODE === 'local' || !db || !token) return await localDbHelpers.getUserByPasswordResetToken(token);
+    const result = await db.query({ users: { $: { where: { passwordResetToken: token } } } });
+    const user = result?.users?.[0] || null;
+    if (user && user.passwordResetExpires && user.passwordResetExpires > Date.now()) return user;
+    return null;
+  },
+
+  async getUserByChangeEmailToken(token) {
+    if (STORAGE_MODE === 'local' || !db || !token) return await localDbHelpers.getUserByChangeEmailToken(token);
+    const result = await db.query({ users: { $: { where: { changeEmailToken: token } } } });
+    const user = result?.users?.[0] || null;
+    if (user && user.changeEmailExpires && user.changeEmailExpires > Date.now()) return user;
+    return null;
+  },
+
   // Vocabulary operations
   async createVocabulary(vocabData) {
     if (STORAGE_MODE === 'local' || !db) {

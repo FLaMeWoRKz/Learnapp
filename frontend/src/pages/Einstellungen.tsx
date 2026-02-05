@@ -9,33 +9,64 @@ import Card from '../components/shared/Card';
 export default function Einstellungen() {
   const { user, updateUser } = useAuth();
   const { vocabDirection, setVocabDirection } = useSettings();
-  const [username, setUsername] = useState(user?.username || '');
-  const [email, setEmail] = useState(user?.email || '');
+  const [newUsername, setNewUsername] = useState('');
+  const [usernamePassword, setUsernamePassword] = useState('');
+  const [usernameMessage, setUsernameMessage] = useState('');
+  const [usernameError, setUsernameError] = useState('');
+
+  const [newEmail, setNewEmail] = useState('');
+  const [emailPassword, setEmailPassword] = useState('');
+  const [emailMessage, setEmailMessage] = useState('');
+  const [emailError, setEmailError] = useState('');
+
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [profileMessage, setProfileMessage] = useState('');
   const [passwordMessage, setPasswordMessage] = useState('');
-  const [profileError, setProfileError] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-  useEffect(() => {
-    if (user) {
-      setUsername(user.username || '');
-      setEmail(user.email || '');
+  const handleChangeUsername = async () => {
+    setUsernameMessage('');
+    setUsernameError('');
+    if (!newUsername.trim()) {
+      setUsernameError('Neuer Benutzername eingeben');
+      return;
     }
-  }, [user]);
-
-  const handleSaveProfile = async () => {
-    setProfileMessage('');
-    setProfileError('');
+    if (!usernamePassword) {
+      setUsernameError('Aktuelles Passwort eingeben');
+      return;
+    }
     try {
-      await authAPI.updateProfile({ username: username.trim(), email: email.trim() });
-      setProfileMessage('Profil gespeichert.');
-      updateUser({ username: username.trim(), email: email.trim() });
+      const { username: updated } = await authAPI.changeUsername(newUsername.trim(), usernamePassword);
+      setUsernameMessage('Benutzername wurde geändert.');
+      updateUser({ username: updated });
+      setNewUsername('');
+      setUsernamePassword('');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };
-      setProfileError(e.response?.data?.error || 'Fehler beim Speichern');
+      setUsernameError(e.response?.data?.error || 'Fehler');
+    }
+  };
+
+  const handleChangeEmail = async () => {
+    setEmailMessage('');
+    setEmailError('');
+    if (!newEmail.trim()) {
+      setEmailError('Neue E-Mail eingeben');
+      return;
+    }
+    if (!emailPassword) {
+      setEmailError('Aktuelles Passwort eingeben');
+      return;
+    }
+    try {
+      await authAPI.changeEmail(newEmail.trim(), emailPassword);
+      setEmailMessage('Wir haben dir eine E-Mail an deine neue Adresse geschickt. Bitte bestätige sie.');
+      setNewEmail('');
+      setEmailPassword('');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } } };
+      setEmailError(e.response?.data?.error || 'Fehler');
     }
   };
 
@@ -123,32 +154,75 @@ export default function Einstellungen() {
               <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
                 Profil
               </h3>
+              <div className="space-y-2 text-gray-600 dark:text-gray-300">
+                <p><span className="font-medium text-gray-700 dark:text-gray-200">Benutzername:</span> {user?.username}</p>
+                <p><span className="font-medium text-gray-700 dark:text-gray-200">E-Mail:</span> {user?.email}</p>
+              </div>
+            </Card>
+
+            <Card className="mb-8">
+              <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
+                Benutzername ändern
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Nach der Änderung erhältst du eine Bestätigungs-E-Mail. Der neue Name muss noch frei sein.
+              </p>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Benutzername (wird von anderen gesehen)
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Neuer Benutzername</label>
                   <input
                     type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    placeholder="Neuer Name"
                     className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    E-Mail
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Aktuelles Passwort</label>
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    type="password"
+                    value={usernamePassword}
+                    onChange={(e) => setUsernamePassword(e.target.value)}
                     className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:text-white"
                   />
                 </div>
-                {profileMessage && <p className="text-green-600">{profileMessage}</p>}
-                {profileError && <p className="text-red-600">{profileError}</p>}
-                <Button onClick={handleSaveProfile}>Profil speichern</Button>
+                {usernameMessage && <p className="text-green-600">{usernameMessage}</p>}
+                {usernameError && <p className="text-red-600">{usernameError}</p>}
+                <Button onClick={handleChangeUsername}>Benutzername ändern</Button>
+              </div>
+            </Card>
+
+            <Card className="mb-8">
+              <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">
+                E-Mail-Adresse ändern
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Wir senden einen Bestätigungslink an deine neue E-Mail-Adresse. Die neue Adresse darf noch nicht vergeben sein.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Neue E-Mail</label>
+                  <input
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="neue@email.de"
+                    className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Aktuelles Passwort</label>
+                  <input
+                    type="password"
+                    value={emailPassword}
+                    onChange={(e) => setEmailPassword(e.target.value)}
+                    className="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:text-white"
+                  />
+                </div>
+                {emailMessage && <p className="text-green-600">{emailMessage}</p>}
+                {emailError && <p className="text-red-600">{emailError}</p>}
+                <Button onClick={handleChangeEmail}>E-Mail ändern (Link wird gesendet)</Button>
               </div>
             </Card>
 

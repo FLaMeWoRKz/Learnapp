@@ -47,6 +47,14 @@ export default function Home() {
         </div>
       </header>
 
+      {isAuthenticated && user && user.emailVerified === false && !(user as { isGuest?: boolean }).isGuest && (
+        <div className="bg-amber-100 dark:bg-amber-900/30 border-b border-amber-300 dark:border-amber-700">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 text-center text-amber-800 dark:text-amber-200 text-sm">
+            Bitte bestätige deine E-Mail-Adresse. Wir haben dir einen Link geschickt.
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center mb-12">

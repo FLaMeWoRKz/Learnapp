@@ -9,6 +9,10 @@ import SinglePlayer from './pages/SinglePlayer';
 import Multiplayer from './pages/Multiplayer';
 import CustomVocab from './pages/CustomVocab';
 import Einstellungen from './pages/Einstellungen';
+import VerifyEmail from './pages/VerifyEmail';
+import PasswordResetRequest from './pages/PasswordResetRequest';
+import PasswordReset from './pages/PasswordReset';
+import ConfirmEmailChange from './pages/ConfirmEmailChange';
 
 function PrivateRoute({ children }: { children: React.ReactElement }) {
   const { isAuthenticated, loading } = useAuth();
@@ -30,6 +34,10 @@ function AppRoutes() {
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/password-reset-request" element={<PasswordResetRequest />} />
+      <Route path="/reset-password" element={<PasswordReset />} />
+      <Route path="/confirm-email-change" element={<ConfirmEmailChange />} />
       <Route
         path="/profile"
         element={
