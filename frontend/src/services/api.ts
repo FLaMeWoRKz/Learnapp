@@ -18,7 +18,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // 10 Sekunden Timeout
+  timeout: 45000, // 45 Sekunden (Railway Cold Start kann 30+ Sek dauern)
 });
 
 // Add token to requests
