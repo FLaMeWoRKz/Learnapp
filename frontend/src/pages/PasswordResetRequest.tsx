@@ -8,18 +8,21 @@ export default function PasswordResetRequest() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setContactEmail('');
     setLoading(true);
     try {
       await authAPI.requestPasswordReset(email.trim());
       setSent(true);
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } };
-      setError(e.response?.data?.error || 'Fehler beim Senden');
+      const res = err as { response?: { data?: { error?: string; contactEmail?: string } } };
+      setError(res.response?.data?.error || 'Ein Fehler ist aufgetreten. Bitte versuche es später erneut. Wenn das Problem bestehen bleibt, wende dich an einen Systemadministrator.');
+      setContactEmail(res.response?.data?.contactEmail || '');
     } finally {
       setLoading(false);
     }
@@ -54,7 +57,10 @@ export default function PasswordResetRequest() {
         </p>
         {error && (
           <div className="mb-4 p-3 bg-red-100 dark:bg-red-900 border border-red-400 text-red-700 dark:text-red-300 rounded text-sm">
-            {error}
+            <p>{error}</p>
+            {contactEmail && (
+              <p className="mt-2 text-xs">Kontakt: <a href={`mailto:${contactEmail}`} className="underline">{contactEmail}</a></p>
+            )}
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-4">

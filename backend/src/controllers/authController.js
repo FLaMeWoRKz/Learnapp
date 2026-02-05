@@ -4,6 +4,13 @@ import { generateSecureToken, getTokenExpiry } from '../utils/tokens.js';
 import { dbHelpers } from '../config/instantdb.js';
 import * as emailService from '../services/emailService.js';
 
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || '';
+
+function authError(res, statusCode = 500) {
+  const message = 'Ein Fehler ist aufgetreten. Bitte versuche es später erneut. Wenn das Problem bestehen bleibt, wende dich an einen Systemadministrator.';
+  return res.status(statusCode).json({ error: message, contactEmail: SUPPORT_EMAIL });
+}
+
 export async function register(req, res, next) {
   try {
     const { email, username, password } = req.body;
@@ -206,11 +213,11 @@ export async function verifyEmail(req, res, next) {
   try {
     const token = req.body?.token || req.query?.token;
     if (!token) {
-      return res.status(400).json({ error: 'Token fehlt' });
+      return authError(res, 400);
     }
     const user = await dbHelpers.getUserByEmailVerificationToken(token);
     if (!user) {
-      return res.status(400).json({ error: 'Ungültiger oder abgelaufener Link. Bitte registriere dich erneut oder fordere einen neuen Link an.' });
+      return authError(res, 400);
     }
     await dbHelpers.updateUser(user.id, {
       emailVerified: true,
@@ -224,7 +231,8 @@ export async function verifyEmail(req, res, next) {
     }
     res.json({ message: 'E-Mail bestätigt. Du kannst dich jetzt einloggen.', emailVerified: true });
   } catch (error) {
-    next(error);
+    console.error('verifyEmail error:', error.message);
+    return authError(res, 500);
   }
 }
 
@@ -232,7 +240,7 @@ export async function requestPasswordReset(req, res, next) {
   try {
     const { email } = req.body;
     if (!email || typeof email !== 'string' || !email.trim()) {
-      return res.status(400).json({ error: 'E-Mail-Adresse ist erforderlich' });
+      return authError(res, 400);
     }
     const user = await dbHelpers.getUserByEmail(email.trim().toLowerCase());
     if (user && !user.isGuest && user.passwordHash) {
@@ -249,7 +257,8 @@ export async function requestPasswordReset(req, res, next) {
       message: 'Falls ein Konto mit dieser E-Mail-Adresse existiert, haben wir dir einen Link zum Zurücksetzen des Passworts gesendet.'
     });
   } catch (error) {
-    next(error);
+    console.error('requestPasswordReset error:', error.message);
+    return authError(res, 500);
   }
 }
 
@@ -257,14 +266,14 @@ export async function resetPassword(req, res, next) {
   try {
     const { token, newPassword } = req.body;
     if (!token || !newPassword) {
-      return res.status(400).json({ error: 'Token und neues Passwort sind erforderlich' });
+      return authError(res, 400);
     }
     if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Das Passwort muss mindestens 6 Zeichen haben' });
+      return authError(res, 400);
     }
     const user = await dbHelpers.getUserByPasswordResetToken(token);
     if (!user) {
-      return res.status(400).json({ error: 'Ungültiger oder abgelaufener Link.' });
+      return authError(res, 400);
     }
     const passwordHash = await hashPassword(newPassword);
     await dbHelpers.updateUser(user.id, {
@@ -274,7 +283,8 @@ export async function resetPassword(req, res, next) {
     });
     res.json({ message: 'Passwort wurde geändert. Du kannst dich jetzt einloggen.' });
   } catch (error) {
-    next(error);
+    console.error('resetPassword error:', error.message);
+    return authError(res, 500);
   }
 }
 
@@ -324,15 +334,15 @@ export async function confirmEmailChange(req, res, next) {
   try {
     const { token } = req.body;
     if (!token) {
-      return res.status(400).json({ error: 'Token fehlt' });
+      return authError(res, 400);
     }
     const user = await dbHelpers.getUserByChangeEmailToken(token);
     if (!user) {
-      return res.status(400).json({ error: 'Ungültiger oder abgelaufener Link.' });
+      return authError(res, 400);
     }
     const newEmail = user.pendingEmail;
     if (!newEmail) {
-      return res.status(400).json({ error: 'Keine ausstehende E-Mail-Änderung.' });
+      return authError(res, 400);
     }
     await dbHelpers.updateUser(user.id, {
       email: newEmail,
@@ -343,7 +353,8 @@ export async function confirmEmailChange(req, res, next) {
     });
     res.json({ message: 'E-Mail-Adresse wurde geändert.' });
   } catch (error) {
-    next(error);
+    console.error('confirmEmailChange error:', error.message);
+    return authError(res, 500);
   }
 }
 

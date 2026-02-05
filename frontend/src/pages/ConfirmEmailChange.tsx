@@ -9,11 +9,12 @@ export default function ConfirmEmailChange() {
   const token = searchParams.get('token');
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
 
   useEffect(() => {
     if (!token) {
       setStatus('error');
-      setMessage('Kein gültiger Link.');
+      setMessage('Ein Fehler ist aufgetreten. Bitte versuche es später erneut. Wenn das Problem bestehen bleibt, wende dich an einen Systemadministrator.');
       return;
     }
     authAPI
@@ -22,9 +23,10 @@ export default function ConfirmEmailChange() {
         setStatus('success');
         setMessage('Deine E-Mail-Adresse wurde geändert. Du kannst dich mit der neuen Adresse einloggen.');
       })
-      .catch((err: { response?: { data?: { error?: string } } }) => {
+      .catch((err: { response?: { data?: { error?: string; contactEmail?: string } } }) => {
         setStatus('error');
-        setMessage(err.response?.data?.error || 'Link ungültig oder abgelaufen.');
+        setMessage(err.response?.data?.error || 'Ein Fehler ist aufgetreten. Bitte versuche es später erneut. Wenn das Problem bestehen bleibt, wende dich an einen Systemadministrator.');
+        setContactEmail(err.response?.data?.contactEmail || '');
       });
   }, [token]);
 
@@ -45,7 +47,13 @@ export default function ConfirmEmailChange() {
         )}
         {status === 'error' && (
           <>
-            <p className="text-red-600 dark:text-red-400 mb-6">{message}</p>
+            <p className="text-red-600 dark:text-red-400 mb-2">{message}</p>
+            {contactEmail && (
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                Kontakt: <a href={`mailto:${contactEmail}`} className="text-primary-600 hover:underline">{contactEmail}</a>
+              </p>
+            )}
+            {!contactEmail && <div className="mb-6" />}
             <Link to="/einstellungen">
               <Button fullWidth>Zu den Einstellungen</Button>
             </Link>

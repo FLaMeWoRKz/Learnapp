@@ -13,10 +13,12 @@ export default function PasswordReset() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [contactEmail, setContactEmail] = useState('');
+
   useEffect(() => {
     if (!token) {
       setStatus('error');
-      setMessage('Kein gültiger Link. Bitte fordere einen neuen Link an.');
+      setMessage('Ein Fehler ist aufgetreten. Bitte versuche es später erneut. Wenn das Problem bestehen bleibt, wende dich an einen Systemadministrator.');
     }
   }, [token]);
 
@@ -36,8 +38,9 @@ export default function PasswordReset() {
       await authAPI.resetPassword(token, password);
       setStatus('success');
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { error?: string } } };
-      setMessage(e.response?.data?.error || 'Fehler beim Zurücksetzen');
+      const res = err as { response?: { data?: { error?: string; contactEmail?: string } } };
+      setMessage(res.response?.data?.error || 'Ein Fehler ist aufgetreten. Bitte versuche es später erneut. Wenn das Problem bestehen bleibt, wende dich an einen Systemadministrator.');
+      setContactEmail(res.response?.data?.contactEmail || '');
     } finally {
       setLoading(false);
     }
@@ -66,9 +69,15 @@ export default function PasswordReset() {
       <div className="min-h-screen flex items-center justify-center px-4">
         <Card className="w-full max-w-md text-center">
           <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
-            Ungültiger Link
+            Fehler
           </h2>
-          <p className="text-red-600 dark:text-red-400 mb-6">{message}</p>
+          <p className="text-red-600 dark:text-red-400 mb-2">{message}</p>
+          {contactEmail && (
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              Kontakt: <a href={`mailto:${contactEmail}`} className="text-primary-600 hover:underline">{contactEmail}</a>
+            </p>
+          )}
+          {!contactEmail && <div className="mb-6" />}
           <Link to="/password-reset-request">
             <Button fullWidth>Neuen Link anfordern</Button>
           </Link>
@@ -85,7 +94,10 @@ export default function PasswordReset() {
         </h2>
         {message && (
           <div className="mb-4 p-3 bg-red-100 dark:bg-red-900 border border-red-400 text-red-700 dark:text-red-300 rounded text-sm">
-            {message}
+            <p>{message}</p>
+            {contactEmail && (
+              <p className="mt-2 text-xs">Kontakt: <a href={`mailto:${contactEmail}`} className="underline">{contactEmail}</a></p>
+            )}
           </div>
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
