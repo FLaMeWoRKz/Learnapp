@@ -61,11 +61,10 @@ export async function register(req, res, next) {
     const userId = await dbHelpers.createUser(userData);
     const userForEmail = { id: userId, email: emailNorm, username: usernameTrim };
 
-    try {
-      await emailService.sendVerificationEmail(userForEmail, emailVerificationToken);
-    } catch (mailErr) {
+    // E-Mail im Hintergrund senden (blockiert nicht die HTTP-Antwort)
+    emailService.sendVerificationEmail(userForEmail, emailVerificationToken).catch((mailErr) => {
       console.error('Verification email failed:', mailErr.message);
-    }
+    });
 
     const token = generateToken({
       userId,
@@ -224,11 +223,9 @@ export async function verifyEmail(req, res, next) {
       emailVerificationToken: null,
       emailVerificationExpires: null
     });
-    try {
-      await emailService.sendWelcomeEmail({ email: user.email, username: user.username });
-    } catch (mailErr) {
+    emailService.sendWelcomeEmail({ email: user.email, username: user.username }).catch((mailErr) => {
       console.error('Welcome email failed:', mailErr.message);
-    }
+    });
     res.json({ message: 'E-Mail bestätigt. Du kannst dich jetzt einloggen.', emailVerified: true });
   } catch (error) {
     console.error('verifyEmail error:', error.message);
@@ -247,11 +244,10 @@ export async function requestPasswordReset(req, res, next) {
       const passwordResetToken = generateSecureToken();
       const passwordResetExpires = getTokenExpiry();
       await dbHelpers.updateUser(user.id, { passwordResetToken, passwordResetExpires });
-      try {
-        await emailService.sendPasswordResetEmail(user, passwordResetToken);
-      } catch (mailErr) {
+      // E-Mail im Hintergrund (blockiert nicht die HTTP-Antwort; verhindert Timeout bei langsamer SMTP)
+      emailService.sendPasswordResetEmail(user, passwordResetToken).catch((mailErr) => {
         console.error('Password reset email failed:', mailErr.message);
-      }
+      });
     }
     res.json({
       message: 'Falls ein Konto mit dieser E-Mail-Adresse existiert, haben wir dir einen Link zum Zurücksetzen des Passworts gesendet.'
@@ -319,11 +315,9 @@ export async function changeEmail(req, res, next) {
       changeEmailToken,
       changeEmailExpires
     });
-    try {
-      await emailService.sendChangeEmailConfirmation(user, changeEmailToken, newEmailNorm);
-    } catch (mailErr) {
+    emailService.sendChangeEmailConfirmation(user, changeEmailToken, newEmailNorm).catch((mailErr) => {
       console.error('Change email confirmation failed:', mailErr.message);
-    }
+    });
     res.json({ message: 'Wir haben dir eine E-Mail an deine neue Adresse geschickt. Bitte bestätige sie.' });
   } catch (error) {
     next(error);
@@ -383,11 +377,9 @@ export async function changeUsername(req, res, next) {
       return res.status(401).json({ error: 'Aktuelles Passwort ist falsch' });
     }
     await dbHelpers.updateUser(userId, { username: trimmed });
-    try {
-      await emailService.sendUsernameChangedNotification({ ...user, username: trimmed });
-    } catch (mailErr) {
+    emailService.sendUsernameChangedNotification({ ...user, username: trimmed }).catch((mailErr) => {
       console.error('Username changed notification failed:', mailErr.message);
-    }
+    });
     res.json({ message: 'Benutzername wurde geändert.', username: trimmed });
   } catch (error) {
     next(error);

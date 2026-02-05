@@ -18,7 +18,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 45000, // 45 Sekunden (Railway Cold Start kann 30+ Sek dauern)
+  timeout: 60000, // 60 Sekunden (Railway Cold Start kann lange dauern)
 });
 
 // Add token to requests
@@ -43,10 +43,10 @@ api.interceptors.response.use(
       console.error('❌ Backend nicht erreichbar. Prüfe VITE_API_URL:', API_BASE_URL);
       error.message = 'Backend-Server nicht erreichbar. Bitte prüfe die Konfiguration.';
     }
-    // Timeout-Fehler
+    // Timeout-Fehler (z. B. Railway Cold Start)
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
       console.error('❌ Request timeout. Backend antwortet nicht:', API_BASE_URL);
-      error.message = 'Server antwortet nicht. Bitte prüfe, ob das Backend läuft.';
+      error.message = 'Der Server braucht einen Moment. Bitte in 30 Sekunden erneut versuchen. Wenn das Problem bestehen bleibt, wende dich an den Support.';
     }
     // Detailliertes Logging für Debugging
     console.error('API Error:', {
